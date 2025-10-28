@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Boss Countdown • Auto Sync + Per-Boss Mute + TTS (UTC+7)</title>
+<style>
+  :root{--bg:#0b0f14;--card:#111823;--text:#d7e2f2;--muted:#99a6b6;--warn:#f1c40f;--hot:#ff6b6b;--blue:#254f85;--blue-2:#24374f;--accent:#4785ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--bg);color:var(--text)}
+  header{background:#0e1d2e;border-bottom:1px solid #24374f;box-shadow:0 2px 5px rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px 24px;border-radius:0 0 12px 12px}
+  .clockWrap{display:flex;flex-direction:column;gap:2px}
+  .now{font-size:28px;font-weight:800;color:#fff}
+  .tz{color:#b5b5b5;font-size:13px}
+  .firstday{color:#dfe8f7;font-size:12px}.firstday .lab{color:#9fb3ca}
+  .controls.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:flex-end}
+  .control{display:flex;align-items:center;gap:10px;background:var(--blue);border:1px solid var(--blue-2);border-radius:10px;padding:8px 12px;color:#fff}
+  .control-title{font-size:13px;font-weight:600}
+  .control.switch{position:relative;gap:10px;cursor:pointer}
+  .control.switch input{position:absolute;inset:0;opacity:0}
+  .switch-ui{width:46px;height:26px;border-radius:999px;background:#1b2838;border:1px solid #1b2838;position:relative;transition:.18s}
+  .switch-ui::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+  .control.switch input:checked + .switch-ui{background:var(--accent);border-color:#4078e6}
+  .control.switch input:checked + .switch-ui::after{transform:translateX(20px)}
+  .control.volume{min-width:260px}
+  .control.volume input[type=range]{accent-color:var(--accent);width:160px;height:6px}
+  #volVal{min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .pane{background:#0e1621;border:1px solid #1c2430;border-radius:12px;padding:12px;margin-bottom:14px}
+  .hint{color:var(--muted);font-size:12px}
+  .statusMsg{color:#9fb3ca;font-size:12px;margin-top:6px}
+
+  .dayhead{margin:20px 0 8px;color:#dfe8f7;font-weight:800;letter-spacing:.2px}
+  .cols{display:grid;grid-template-columns:2fr 110px 140px 170px 120px;gap:8px;align-items:center}
+  .head{color:#8aa0b8;font-weight:700;padding:8px 12px}
+  .row{background:var(--card);border:1px solid #1c2430;border-radius:10px;padding:12px;margin-bottom:10px}
+  .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .time{font-weight:700}
+  .due{font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:12px;border:1px solid #223044;color:#8aa0b8}
+  .soon{color:var(--warn);border-color:#544a13}
+  .hot{color:#fff;background:var(--hot);border-color:transparent}
+  .past{opacity:.5}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;border-radius:999px;padding:.35rem .7rem;background:#121b28;border:1px solid #223044;color:#cfd9e7;cursor:pointer}
+  .chip:hover{border-color:#3a536e}
+  .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
+
+  @media (max-width:720px){
+    header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
+    .controls.bar{width:100%;justify-content:flex-start}
+    .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
+    .wrap{padding:12px}.head{display:none}
+    .row.cols{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name alert" "meta alert";row-gap:6px;align-items:start}
+    .name{grid-area:name;font-size:16px;font-weight:700}
+    .alertCell{grid-area:alert;display:flex;justify-content:flex-end}
+    .time,.due,.statusCell{grid-area:meta;display:inline-block;font-size:12px;color:var(--muted);margin-right:10px}
+    .time::before{content:"Time ";color:#8aa0b8;font-weight:700;margin-right:4px}
+    .due::before{content:"• Left ";color:#8aa0b8;font-weight:700;margin:0 4px}
+    .statusCell::before{content:"• ";color:#8aa0b8;font-weight:700;margin-right:4px}
+    .statusCell .pill{font-size:11px;padding:.15rem .5rem}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="clockWrap">
+    <div class="now" id="now">--:--:--</div>
+    <div class="tz">Asia/Bangkok • (UTC+7)</div>
+    <div class="firstday" id="firstDayHint" style="display:none;">
+      <span class="lab">First day:</span> <span id="firstDayLabel"></span>
+    </div>
+  </div>
+  <div class="controls bar">
+    <label class="control switch" title="Enable/disable all sounds (TTS + effects)">
+      <input id="soundToggle" type="checkbox" checked>
+      <span class="switch-ui"></span>
+      <span class="control-title">Enable sound</span>
+    </label>
+    <div class="control volume">
+      <span class="control-title">Volume</span>
+      <input id="vol" type="range" min="0" max="100" step="1"><span id="volVal">80%</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="pane">
+    <div class="hint">Auto-sync from Google Sheet (GViz JSONP) → <b>BossAlert!U4</b>. Sheet must be public or published.</div>
+    <div id="syncStatus" class="statusMsg">Syncing automatically…</div>
+  </div>
+
+  <div class="cols head">
+    <div>Boss</div><div>Time</div><div>Countdown</div><div>Status</div><div>Alert</div>
+  </div>
+  <div id="list"></div>
+</div>
+
+<footer style="color:#7f8ea3;text-align:center;padding:12px 0 26px">
+  Auto Sheet Sync • Per-boss persistent mute • TTS (“Poppy” if available) • 5 min & at-time alerts • UTC+7
+</footer>
+
+<script>
+/* ====== CONFIG ====== */
+const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
+const SHEET_NAME = "BossAlert";
+const RANGE_A1   = "U4";
+const SYNC_MS    = 20000;
+
+/* ====== GViz JSONP URL ====== */
+function buildGVizJsonpUrl(callbackName){
+  const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
+  const params = new URLSearchParams({
+    tqx: `out:json;responseHandler:${callbackName}`,
+    sheet: SHEET_NAME,
+    range: RANGE_A1,
+    headers: "0"
+  });
+  return `${base}?${params.toString()}`;
+}
+
+/* ====== Time (UTC+7) ====== */
+const TZ="Asia/Bangkok";
+const BKK_OFFSET_MS = 7*60*60*1000;
+function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
+function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
+function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
+
+/* ====== Sounds ====== */
+const AUDIO_5MIN="https://cdn.discordapp.com/attachments/407555517871816706/1431879965812592791/five_mins_remaining.mp3?ex=6901a8a2&is=69005722&hm=af48df6b1b0c7ce3b0cb9e6327e0ad0152a97f3cb9e549af970be7d3219d28df&";
+const AUDIO_HIT ="https://cdn.discordapp.com/attachments/407555517871816706/1431878506823946270/999-social-credit-siren.mp3?ex=6901a747&is=690055c7&hm=a1739d27f6281e34ce053330dab5c31461144d07f982edf4d2b33d468f0ee927&";
+let audioEnabled = true;
+function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
+async function playCue(kind){
+  if(!audioEnabled) return;
+  const url = (kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
+  const a = new Audio(url);
+  a.volume = Math.min(1, getVolume() + (kind==="hit"?0.10:0));
+  try{ await a.play(); }catch(e){ console.warn("Audio play failed:", e); }
+}
+
+/* ====== TTS (Web Speech) ====== */
+let speechReady=false, preferredVoice=null;
+function chooseVoice(){
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  if(!voices.length) return null;
+  let v = voices.find(v=>/poppy/i.test(v.name));
+  if(!v) v = voices.find(v=>/en(-|_|\b)/i.test(v.lang||"") || /English/i.test(v.name));
+  return v || voices[0];
+}
+function initVoices(){
+  preferredVoice = chooseVoice();
+  speechReady = !!preferredVoice;
+}
+if('speechSynthesis' in window){
+  // บราวเซอร์บางตัวจะยิง event นี้ทีหลัง จึงต้องตั้ง handler ไว้
+  window.speechSynthesis.onvoiceschanged = ()=>{ initVoices(); };
+  // และลองโหลดทันทีด้วย (กรณีพร้อมอยู่แล้ว)
+  initVoices();
+}
+function cleanBossName(raw){
+  return String(raw).replace(/^Lv\d+\s*-\s*/i,'').replace(/\s+\.+$/,'').trim();
+}
+function ttsSpeak(text){
+  if(!audioEnabled) return;
+  if(!('speechSynthesis' in window)) return;
+  if(!speechReady){ initVoices(); }
+  const u = new SpeechSynthesisUtterance(text);
+  if(preferredVoice) u.voice = preferredVoice;
+  u.lang = 'en-US';
+  u.rate = 0.9;     // ช้าลงนิด
+  u.pitch = 1.0;
+  u.volume = getVolume();
+  try{ window.speechSynthesis.speak(u); }catch(e){ console.warn('TTS error:', e); }
+}
+function ttsFiveMin(name){
+  const n = cleanBossName(name);
+  if(!n) return;
+  ttsSpeak(n);                    // พูดชื่อก่อน
+  setTimeout(()=>playCue('m5'), 300);  // แล้วเล่นเสียง 5 นาที
+}
+function ttsHit(name){
+  const n = cleanBossName(name);
+  if(!n) return;
+  ttsSpeak(`${n}, spawn`);        // พูดชื่อ + spawn
+  setTimeout(()=>playCue('hit'), 150);
+}
+
+/* ====== Parser (multi-day, supports quotes & 🕐 header) ====== */
+const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
+function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
+function parseSchedule(text){
+  let cleaned=String(text).trim().replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"");
+  const lines=cleaned.split(/\r?\n/).map(l=>stripLineQuotes(l.trim())).filter(Boolean);
+  const out=[]; let cur=null; let sawHeader=false;
+  for(const line of lines){
+    const d=line.match(DAY_RE);
+    if(d){
+      sawHeader=true;
+      const[,dow,dd,MM,YYYY]=d; const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
+      const dateStr=`${YYYY}-${MM2}-${dd2}`;
+      cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[]};
+      out.push(cur); continue;
+    }
+    const m=[...line.matchAll(/(\d{1,2}):(\d{2})/g)];
+    if(m.length===0) continue;
+    if(!cur) throw new Error('Please add a day header first (e.g. "🕐 Tue 28/10/2025").');
+    const last=m[m.length-1];
+    const at=`${String(+last[1]).padStart(2,'0')}:${String(+last[2]).padStart(2,'0')}`;
+    const name=line.slice(0,line.lastIndexOf(last[0])).replace(/\s*\[.*?\]\s*$/,'').trim();
+    cur.items.push({name,at});
+  }
+  if(!sawHeader) throw new Error('No day headers found. Start with: "🕐 Tue 28/10/2025"');
+  return out;
+}
+
+/* ====== UI model & mute persistence ====== */
+let sections=[];         // [{dateStr,label,items:[{name,at}],rows:[]}]
+let alertedState={};     // per-row one-shot flags
+let lastRaw="";          // <-- (แก้แล้ว) ประกาศครั้งเดียว
+const MUTE_STORE_KEY = "bossMuteMapV1";
+function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY) || "{}"); }catch{return {}} }
+function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
+let muteMap = loadMuteMap();
+function rowKeyOf(sec, item){
+  const cleanName = item.name.replace(/\s+/g,' ').trim().toLowerCase();
+  return `${sec.dateStr}|${item.at}|${cleanName}`;
+}
+
+/* ====== DOM ====== */
+const nowEl=document.getElementById('now');
+const listEl=document.getElementById('list');
+const volSlider=document.getElementById('vol');
+const volVal=document.getElementById('volVal');
+const firstDayHint=document.getElementById('firstDayHint');
+const firstDayLabel=document.getElementById('firstDayLabel');
+const syncStatus=document.getElementById('syncStatus');
+const soundToggle=document.getElementById('soundToggle');
+
+/* ====== UI build & tick ====== */
+function buildUI(){
+  listEl.innerHTML='';
+  sections.forEach((sec,si)=>{
+    const h=document.createElement('div'); h.className='dayhead'; h.textContent=`🕐 ${sec.label}`; listEl.appendChild(h);
+    sec.rows = [];
+    sec.items.forEach((b,ri)=>{
+      const row=document.createElement('div'); row.className='row cols';
+      const nameEl=document.createElement('div'); nameEl.className='name';
+      const timeEl=document.createElement('div'); timeEl.className='time';
+      const dueEl =document.createElement('div'); dueEl.className ='due';
+      const statusCell=document.createElement('div'); statusCell.className='statusCell';
+      const badge=document.createElement('span'); badge.className='pill'; badge.textContent='Waiting'; statusCell.appendChild(badge);
+      const alertCell=document.createElement('div'); alertCell.className='alertCell';
+      const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert'; alertCell.appendChild(muteBtn);
+      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); listEl.appendChild(row);
+
+      const key = rowKeyOf(sec, b);
+      const persistedMuted = !!muteMap[key];
+
+      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:persistedMuted,key};
+      applyMuteBtnUI(r);
+
+      muteBtn.addEventListener('click',()=>{
+        r.muted = !r.muted;
+        if(r.muted) muteMap[r.key] = true; else delete muteMap[r.key];
+        saveMuteMap(muteMap);
+        applyMuteBtnUI(r);
+      });
+
+      sec.rows.push(r);
+    });
+  });
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
+  else{ firstDayHint.style.display='none'; }
+}
+function applyMuteBtnUI(r){
+  if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
+  else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
+}
+
+function updateTick(){
+  nowEl.textContent=fmtNow(); const nowMs=Date.now();
+  sections.forEach((sec,si)=>{
+    sec.items.forEach((b,ri)=>{
+      const tgt=atOn(sec.dateStr,b.at), ms=tgt.getTime()-nowMs, r=sec.rows[ri]; if(!r) return;
+      r.nameEl.textContent=b.name; r.timeEl.textContent=b.at; r.dueEl.textContent=fmtHMS(ms); r.rowEl.classList.toggle('past',ms<0);
+      r.badgeEl.className='pill';
+      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot');  r.badgeEl.textContent="It's time!"; }
+      else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
+      else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
+      else { r.badgeEl.textContent="Waiting"; }
+
+      const key = r.key;
+      const st = (alertedState[key] ||= {});
+      if(!r.muted){
+        if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; ttsFiveMin(b.name); }
+        if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; ttsHit(b.name); }
+      }
+    });
+  });
+}
+
+/* ====== JSONP ====== */
+function jsonp(url, cbName, timeout=12000){
+  return new Promise((resolve, reject)=>{
+    const s=document.createElement('script');
+    let done=false, timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))}, timeout);
+    function cleanup(){ if(done) return; done=true; clearTimeout(timer); delete window[cbName]; s.remove(); }
+    window[cbName]=(payload)=>{ cleanup(); resolve(payload); };
+    s.src=url; s.onerror=()=>{ cleanup(); reject(new Error('JSONP network error')); };
+    document.head.appendChild(s);
+  });
+}
+function extractU4FromGviz(resp){
+  if(!resp || !resp.table || !resp.table.rows || !resp.table.rows.length) throw new Error('No data in response');
+  const cell = resp.table.rows[0].c?.[0];
+  if(!cell) throw new Error('Empty cell');
+  return String(cell.v ?? cell.f ?? '').trim();
+}
+
+/* ====== Auto sync loop ====== */
+async function syncFromSheetJSONP(){
+  try{
+    const cbName = "gviz_cb_" + Math.random().toString(36).slice(2);
+    const url = buildGVizJsonpUrl(cbName);
+    const payload = await jsonp(url, cbName);
+    const raw = extractU4FromGviz(payload);
+    if(!raw) { syncStatus.textContent = "No data in BossAlert!U4"; return; }
+    if(raw !== lastRaw){
+      lastRaw = raw;
+      alertedState = {};             // reset one-shot flags only (muteMap persists)
+      sections = parseSchedule(raw);
+      buildUI();
+      updateTick();
+    }
+    const when = new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});
+    syncStatus.textContent = `Last synced at ${when}`;
+  }catch(err){
+    console.warn("GViz JSONP error:", err);
+    syncStatus.textContent = `Sync error: ${err.message}`;
+  }
+}
+function startAutoSync(){
+  syncFromSheetJSONP();
+  setInterval(syncFromSheetJSONP, SYNC_MS);
+}
+
+/* ===== Events & init (persist toggle & volume) ===== */
+(function init(){
+  // Volume
+  const savedVol = Number(localStorage.getItem('bossVol'));
+  const vol = Number.isFinite(savedVol) ? savedVol : 80;
+  volSlider.value = String(vol);
+  volVal.textContent = `${vol}%`;
+  volSlider.addEventListener('input', e=>{
+    localStorage.setItem('bossVol', e.target.value);
+    volVal.textContent = `${e.target.value}%`;
+  });
+
+  // Global sound toggle (persisted)
+  const savedSound = localStorage.getItem('bossSound');
+  if(savedSound !== null){
+    audioEnabled = savedSound === 'true';
+    soundToggle.checked = audioEnabled;
+  } else {
+    audioEnabled = true; // default ON
+    soundToggle.checked = true;
+  }
+  soundToggle.addEventListener('change', e=>{
+    audioEnabled = e.target.checked;
+    localStorage.setItem('bossSound', String(audioEnabled));
+  });
+
+  updateTick(); setInterval(updateTick,1000);
+  startAutoSync();
+})();
+</script>
+</body>
+</html>
