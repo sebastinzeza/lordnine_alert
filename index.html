@@ -129,8 +129,8 @@ function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Mat
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
 /* ================= SOUND ================= */
-const AUDIO_5MIN="https://cdn.discordapp.com/attachments/407555517871816706/1431879965812592791/five_mins_remaining.mp3?ex=6901a8a2&is=69005722&hm=af48df6b1b0c7ce3b0cb9e6327e0ad0152a97f3cb9e549af970be7d3219d28df&";
-const AUDIO_HIT ="https://cdn.discordapp.com/attachments/407555517871816706/1431878506823946270/999-social-credit-siren.mp3?ex=6901a747&is=690055c7&hm=a1739d27f6281e34ce053330dab5c31461144d07f982edf4d2b33d468f0ee927&";
+const AUDIO_5MIN="https://ucda62e2131317652a7e2a1439ed.dl.dropboxusercontent.com/cd/0/get/C0E-vGnTodiipuuLbyOHUC0S1NXjC3nN6NZsIFp0H3GuBKSN2T6XTD9PDdD4HZWhOUVq-NInfsM5alCXnDD8JU_LSm7cM21ZAxa9xvPXgcVEHsg_GqQNEBLp6ChCQM4DRxFH7neaNdW3tex2gS9PdQwpkRAhjppyMbZtkfPYk5G-yg/file?_download_id=96794391626214064712806398791815673992361967442088146779636165715&_log_download_success=1#";
+const AUDIO_HIT ="https://uce3e7d1f991e7f5cee11c610d27.dl.dropboxusercontent.com/cd/0/get/C0GiOHGl73BSYXqWg1fNkSyaUwFHjlrceYrB1GJQqOJHZedu6d23C6EiDCH2UcDBbxXjs03KJs-UWr4B5ulYFemWoToy0sOWL-Hz0VXgy4gjk1ZVxln7av8_b552Dc2e_lxGlBUjF2v8IK1r7vFkvZjN1thtPUJ78kvjizdoigk9JA/file?_download_id=23521150530885038799456711046162672300890532010851766887123329698&_log_download_success=1#";
 let audioEnabled = true;
 function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
 async function playCue(kind){
