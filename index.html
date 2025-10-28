@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Boss Countdown • Auto Sync + Per-Boss Mute + TTS (UTC+7)</title>
+<title>Boss Countdown • Auto Sync + Per-Boss Mute (UTC+7)</title>
 <style>
   :root{--bg:#0b0f14;--card:#111823;--text:#d7e2f2;--muted:#99a6b6;--warn:#f1c40f;--hot:#ff6b6b;--blue:#254f85;--blue-2:#24374f;--accent:#4785ff}
   *{box-sizing:border-box}
@@ -46,19 +46,33 @@
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
+  /* ------- Mobile stack (no overlap) ------- */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
-    .row.cols{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name alert" "meta alert";row-gap:6px;align-items:start}
-    .name{grid-area:name;font-size:16px;font-weight:700}
-    .alertCell{grid-area:alert;display:flex;justify-content:flex-end}
-    .time,.due,.statusCell{grid-area:meta;display:inline-block;font-size:12px;color:var(--muted);margin-right:10px}
+
+    .row.cols{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "name  alert"
+        "time  alert"
+        "due   alert"
+        "status alert";
+      row-gap:6px;
+      align-items:start;
+    }
+    .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
+    .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
+    .time{grid-area:time;display:block;font-size:13px;color:#cbd5e1}
     .time::before{content:"Time ";color:#8aa0b8;font-weight:700;margin-right:4px}
-    .due::before{content:"• Left ";color:#8aa0b8;font-weight:700;margin:0 4px}
-    .statusCell::before{content:"• ";color:#8aa0b8;font-weight:700;margin-right:4px}
-    .statusCell .pill{font-size:11px;padding:.15rem .5rem}
+    .due{grid-area:due;display:block;font-size:13px;color:#cbd5e1}
+    .due::before{content:"Left ";color:#8aa0b8;font-weight:700;margin-right:6px}
+    .statusCell{grid-area:status;display:block}
+    .statusCell .pill{font-size:12px;padding:.18rem .5rem}
+    .chip{padding:.4rem .8rem;font-size:13px}
   }
 </style>
 </head>
@@ -72,7 +86,7 @@
     </div>
   </div>
   <div class="controls bar">
-    <label class="control switch" title="Enable/disable all sounds (TTS + effects)">
+    <label class="control switch" title="Enable/disable all sounds">
       <input id="soundToggle" type="checkbox" checked>
       <span class="switch-ui"></span>
       <span class="control-title">Enable sound</span>
@@ -86,7 +100,7 @@
 
 <div class="wrap">
   <div class="pane">
-    <div class="hint">Auto-sync from Google Sheet (GViz JSONP) → <b>BossAlert!U4</b>. Sheet must be public or published.</div>
+    <div class="hint">Auto-sync from Google Sheet</div>
     <div id="syncStatus" class="statusMsg">Syncing automatically…</div>
   </div>
 
@@ -97,96 +111,37 @@
 </div>
 
 <footer style="color:#7f8ea3;text-align:center;padding:12px 0 26px">
-  Auto Sheet Sync • Per-boss persistent mute • TTS (“Poppy” if available) • 5 min & at-time alerts • UTC+7
+  Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
 <script>
-/* ====== CONFIG ====== */
+/* ================= CONFIG ================= */
 const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
 const SHEET_NAME = "BossAlert";
 const RANGE_A1   = "U4";
 const SYNC_MS    = 20000;
 
-/* ====== GViz JSONP URL ====== */
-function buildGVizJsonpUrl(callbackName){
-  const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-  const params = new URLSearchParams({
-    tqx: `out:json;responseHandler:${callbackName}`,
-    sheet: SHEET_NAME,
-    range: RANGE_A1,
-    headers: "0"
-  });
-  return `${base}?${params.toString()}`;
-}
-
-/* ====== Time (UTC+7) ====== */
+/* ================= TIME (UTC+7) ================= */
 const TZ="Asia/Bangkok";
 const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ====== Sounds ====== */
+/* ================= SOUND ================= */
 const AUDIO_5MIN="https://cdn.discordapp.com/attachments/407555517871816706/1431879965812592791/five_mins_remaining.mp3?ex=6901a8a2&is=69005722&hm=af48df6b1b0c7ce3b0cb9e6327e0ad0152a97f3cb9e549af970be7d3219d28df&";
 const AUDIO_HIT ="https://cdn.discordapp.com/attachments/407555517871816706/1431878506823946270/999-social-credit-siren.mp3?ex=6901a747&is=690055c7&hm=a1739d27f6281e34ce053330dab5c31461144d07f982edf4d2b33d468f0ee927&";
 let audioEnabled = true;
 function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
 async function playCue(kind){
   if(!audioEnabled) return;
-  const url = (kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
-  const a = new Audio(url);
-  a.volume = Math.min(1, getVolume() + (kind==="hit"?0.10:0));
-  try{ await a.play(); }catch(e){ console.warn("Audio play failed:", e); }
+  const url=(kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
+  const a=new Audio(url);
+  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
+  try{await a.play()}catch(e){console.warn("Audio play failed:",e)}
 }
 
-/* ====== TTS (Web Speech) ====== */
-let speechReady=false, preferredVoice=null;
-function chooseVoice(){
-  const voices = window.speechSynthesis?.getVoices?.() || [];
-  if(!voices.length) return null;
-  let v = voices.find(v=>/poppy/i.test(v.name));
-  if(!v) v = voices.find(v=>/en(-|_|\b)/i.test(v.lang||"") || /English/i.test(v.name));
-  return v || voices[0];
-}
-function initVoices(){
-  preferredVoice = chooseVoice();
-  speechReady = !!preferredVoice;
-}
-if('speechSynthesis' in window){
-  // บราวเซอร์บางตัวจะยิง event นี้ทีหลัง จึงต้องตั้ง handler ไว้
-  window.speechSynthesis.onvoiceschanged = ()=>{ initVoices(); };
-  // และลองโหลดทันทีด้วย (กรณีพร้อมอยู่แล้ว)
-  initVoices();
-}
-function cleanBossName(raw){
-  return String(raw).replace(/^Lv\d+\s*-\s*/i,'').replace(/\s+\.+$/,'').trim();
-}
-function ttsSpeak(text){
-  if(!audioEnabled) return;
-  if(!('speechSynthesis' in window)) return;
-  if(!speechReady){ initVoices(); }
-  const u = new SpeechSynthesisUtterance(text);
-  if(preferredVoice) u.voice = preferredVoice;
-  u.lang = 'en-US';
-  u.rate = 0.9;     // ช้าลงนิด
-  u.pitch = 1.0;
-  u.volume = getVolume();
-  try{ window.speechSynthesis.speak(u); }catch(e){ console.warn('TTS error:', e); }
-}
-function ttsFiveMin(name){
-  const n = cleanBossName(name);
-  if(!n) return;
-  ttsSpeak(n);                    // พูดชื่อก่อน
-  setTimeout(()=>playCue('m5'), 300);  // แล้วเล่นเสียง 5 นาที
-}
-function ttsHit(name){
-  const n = cleanBossName(name);
-  if(!n) return;
-  ttsSpeak(`${n}, spawn`);        // พูดชื่อ + spawn
-  setTimeout(()=>playCue('hit'), 150);
-}
-
-/* ====== Parser (multi-day, supports quotes & 🕐 header) ====== */
+/* ================= PARSER (multi-day) ================= */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -214,20 +169,17 @@ function parseSchedule(text){
   return out;
 }
 
-/* ====== UI model & mute persistence ====== */
-let sections=[];         // [{dateStr,label,items:[{name,at}],rows:[]}]
-let alertedState={};     // per-row one-shot flags
-let lastRaw="";          // <-- (แก้แล้ว) ประกาศครั้งเดียว
-const MUTE_STORE_KEY = "bossMuteMapV1";
-function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY) || "{}"); }catch{return {}} }
+/* ================= STATE & DOM REFS ================= */
+let sections=[];              // [{dateStr,label,items[],rows[]}]
+let alertedState={};          // per-row, reset on new data
+let lastRaw="";               // last pulled U4 text
+
+const MUTE_STORE_KEY="bossMuteMapV1";
+function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
 function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
 let muteMap = loadMuteMap();
-function rowKeyOf(sec, item){
-  const cleanName = item.name.replace(/\s+/g,' ').trim().toLowerCase();
-  return `${sec.dateStr}|${item.at}|${cleanName}`;
-}
+function rowKeyOf(sec,item){ const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase(); return `${sec.dateStr}|${item.at}|${clean}`; }
 
-/* ====== DOM ====== */
 const nowEl=document.getElementById('now');
 const listEl=document.getElementById('list');
 const volSlider=document.getElementById('vol');
@@ -237,139 +189,107 @@ const firstDayLabel=document.getElementById('firstDayLabel');
 const syncStatus=document.getElementById('syncStatus');
 const soundToggle=document.getElementById('soundToggle');
 
-/* ====== UI build & tick ====== */
-function buildUI(){
-  listEl.innerHTML='';
-  sections.forEach((sec,si)=>{
-    const h=document.createElement('div'); h.className='dayhead'; h.textContent=`🕐 ${sec.label}`; listEl.appendChild(h);
-    sec.rows = [];
-    sec.items.forEach((b,ri)=>{
-      const row=document.createElement('div'); row.className='row cols';
-      const nameEl=document.createElement('div'); nameEl.className='name';
-      const timeEl=document.createElement('div'); timeEl.className='time';
-      const dueEl =document.createElement('div'); dueEl.className ='due';
-      const statusCell=document.createElement('div'); statusCell.className='statusCell';
-      const badge=document.createElement('span'); badge.className='pill'; badge.textContent='Waiting'; statusCell.appendChild(badge);
-      const alertCell=document.createElement('div'); alertCell.className='alertCell';
-      const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert'; alertCell.appendChild(muteBtn);
-      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); listEl.appendChild(row);
-
-      const key = rowKeyOf(sec, b);
-      const persistedMuted = !!muteMap[key];
-
-      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:persistedMuted,key};
-      applyMuteBtnUI(r);
-
-      muteBtn.addEventListener('click',()=>{
-        r.muted = !r.muted;
-        if(r.muted) muteMap[r.key] = true; else delete muteMap[r.key];
-        saveMuteMap(muteMap);
-        applyMuteBtnUI(r);
-      });
-
-      sec.rows.push(r);
-    });
-  });
-  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
-  else{ firstDayHint.style.display='none'; }
-}
+/* ================= UI BUILD & TICK ================= */
 function applyMuteBtnUI(r){
   if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
   else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
 }
+function buildUI(){
+  listEl.innerHTML='';
+  sections.forEach(sec=>{
+    const h=document.createElement('div'); h.className='dayhead'; h.textContent=`🕐 ${sec.label}`; listEl.appendChild(h);
+    sec.rows=[];
+    sec.items.forEach(item=>{
+      const row=document.createElement('div'); row.className='row cols';
+      const nameEl=document.createElement('div'); nameEl.className='name';
+      const timeEl=document.createElement('div'); timeEl.className='time';
+      const dueEl=document.createElement('div'); dueEl.className='due';
+      const statusCell=document.createElement('div'); statusCell.className='statusCell';
+      const badge=document.createElement('span'); badge.className='pill'; badge.textContent='Waiting';
+      statusCell.appendChild(badge);
+      const alertCell=document.createElement('div'); alertCell.className='alertCell';
+      const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert';
+      alertCell.appendChild(muteBtn);
+      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); listEl.appendChild(row);
 
+      const key=rowKeyOf(sec,item);
+      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key};
+      applyMuteBtnUI(r);
+      muteBtn.addEventListener('click',()=>{ r.muted=!r.muted; if(r.muted) muteMap[key]=true; else delete muteMap[key]; saveMuteMap(muteMap); applyMuteBtnUI(r); });
+      sec.rows.push(r);
+    });
+  });
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
+}
 function updateTick(){
   nowEl.textContent=fmtNow(); const nowMs=Date.now();
-  sections.forEach((sec,si)=>{
-    sec.items.forEach((b,ri)=>{
-      const tgt=atOn(sec.dateStr,b.at), ms=tgt.getTime()-nowMs, r=sec.rows[ri]; if(!r) return;
+  sections.forEach(sec=>{
+    sec.items.forEach((b,i)=>{
+      const r=sec.rows[i]; if(!r) return;
+      const ms=atOn(sec.dateStr,b.at).getTime()-nowMs;
       r.nameEl.textContent=b.name; r.timeEl.textContent=b.at; r.dueEl.textContent=fmtHMS(ms); r.rowEl.classList.toggle('past',ms<0);
       r.badgeEl.className='pill';
-      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot');  r.badgeEl.textContent="It's time!"; }
+      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
       else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
       else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
       else { r.badgeEl.textContent="Waiting"; }
-
-      const key = r.key;
-      const st = (alertedState[key] ||= {});
+      const key=r.key; const st=(alertedState[key] ||= {});
       if(!r.muted){
-        if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; ttsFiveMin(b.name); }
-        if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; ttsHit(b.name); }
+        if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; playCue('m5'); }
+        if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; playCue('hit'); }
       }
     });
   });
 }
 
-/* ====== JSONP ====== */
-function jsonp(url, cbName, timeout=12000){
-  return new Promise((resolve, reject)=>{
-    const s=document.createElement('script');
-    let done=false, timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))}, timeout);
-    function cleanup(){ if(done) return; done=true; clearTimeout(timer); delete window[cbName]; s.remove(); }
-    window[cbName]=(payload)=>{ cleanup(); resolve(payload); };
-    s.src=url; s.onerror=()=>{ cleanup(); reject(new Error('JSONP network error')); };
-    document.head.appendChild(s);
+/* ================= GViz JSONP ================= */
+function buildGVizJsonpUrl(callbackName){
+  const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
+  const params=new URLSearchParams({tqx:`out:json;responseHandler:${callbackName}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
+  return `${base}?${params.toString()}`;
+}
+function jsonp(url,cbName,timeout=12000){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script'); let done=false;
+    const timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))},timeout);
+    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cbName];s.remove();}
+    window[cbName]=payload=>{cleanup();resolve(payload)};
+    s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
   });
 }
 function extractU4FromGviz(resp){
-  if(!resp || !resp.table || !resp.table.rows || !resp.table.rows.length) throw new Error('No data in response');
-  const cell = resp.table.rows[0].c?.[0];
-  if(!cell) throw new Error('Empty cell');
-  return String(cell.v ?? cell.f ?? '').trim();
+  if(!resp?.table?.rows?.length) throw new Error('No data in BossAlert!U4');
+  const cell=resp.table.rows[0].c?.[0];
+  return String(cell?.v ?? cell?.f ?? '').trim();
 }
 
-/* ====== Auto sync loop ====== */
+/* ================= AUTO SYNC ================= */
 async function syncFromSheetJSONP(){
   try{
-    const cbName = "gviz_cb_" + Math.random().toString(36).slice(2);
-    const url = buildGVizJsonpUrl(cbName);
-    const payload = await jsonp(url, cbName);
-    const raw = extractU4FromGviz(payload);
-    if(!raw) { syncStatus.textContent = "No data in BossAlert!U4"; return; }
-    if(raw !== lastRaw){
-      lastRaw = raw;
-      alertedState = {};             // reset one-shot flags only (muteMap persists)
-      sections = parseSchedule(raw);
-      buildUI();
-      updateTick();
+    const cb="cb_"+Math.random().toString(36).slice(2);
+    const payload=await jsonp(buildGVizJsonpUrl(cb),cb);
+    const raw=extractU4FromGviz(payload);
+    if(raw && raw!==lastRaw){
+      lastRaw=raw; alertedState={}; sections=parseSchedule(raw); buildUI(); updateTick();
     }
-    const when = new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});
-    syncStatus.textContent = `Last synced at ${when}`;
-  }catch(err){
-    console.warn("GViz JSONP error:", err);
-    syncStatus.textContent = `Sync error: ${err.message}`;
-  }
+    syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
+  }catch(e){ console.warn(e); syncStatus.textContent=`Sync error: ${e.message}`; }
 }
-function startAutoSync(){
-  syncFromSheetJSONP();
-  setInterval(syncFromSheetJSONP, SYNC_MS);
-}
+function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* ===== Events & init (persist toggle & volume) ===== */
+/* ================= INIT ================= */
 (function init(){
-  // Volume
-  const savedVol = Number(localStorage.getItem('bossVol'));
-  const vol = Number.isFinite(savedVol) ? savedVol : 80;
-  volSlider.value = String(vol);
-  volVal.textContent = `${vol}%`;
-  volSlider.addEventListener('input', e=>{
-    localStorage.setItem('bossVol', e.target.value);
-    volVal.textContent = `${e.target.value}%`;
-  });
+  // volume (persist)
+  const savedVol=Number(localStorage.getItem('bossVol'));
+  const vol=Number.isFinite(savedVol)?savedVol:80;
+  volSlider.value=String(vol); volVal.textContent=`${vol}%`;
+  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
 
-  // Global sound toggle (persisted)
-  const savedSound = localStorage.getItem('bossSound');
-  if(savedSound !== null){
-    audioEnabled = savedSound === 'true';
-    soundToggle.checked = audioEnabled;
-  } else {
-    audioEnabled = true; // default ON
-    soundToggle.checked = true;
-  }
-  soundToggle.addEventListener('change', e=>{
-    audioEnabled = e.target.checked;
-    localStorage.setItem('bossSound', String(audioEnabled));
-  });
+  // sound toggle (persist)
+  const savedSound=localStorage.getItem('bossSound');
+  audioEnabled = savedSound!==null ? (savedSound==='true') : true;
+  soundToggle.checked=audioEnabled;
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); });
 
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
