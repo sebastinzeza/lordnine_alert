@@ -46,13 +46,11 @@
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
-  /* ------- Mobile stack (no overlap) ------- */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
-
     .row.cols{
       display:grid;
       grid-template-columns: 1fr auto;
@@ -61,9 +59,7 @@
         "time  alert"
         "due   alert"
         "status alert";
-      row-gap:6px;
-      align-items:start;
-    }
+      row-gap:6px;align-items:start}
     .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
     .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
     .time{grid-area:time;display:block;font-size:13px;color:#cbd5e1}
@@ -75,6 +71,10 @@
     .chip{padding:.4rem .8rem;font-size:13px}
   }
 </style>
+
+<!-- Preload your own audio (improves first-play) -->
+<link rel="preload" as="audio" href="/sounds/5min.mp3">
+<link rel="preload" as="audio" href="/sounds/hit.mp3">
 </head>
 <body>
 <header>
@@ -128,17 +128,64 @@ function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,tim
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ================= SOUND ================= */
-const AUDIO_5MIN="https://ucda62e2131317652a7e2a1439ed.dl.dropboxusercontent.com/cd/0/get/C0E-vGnTodiipuuLbyOHUC0S1NXjC3nN6NZsIFp0H3GuBKSN2T6XTD9PDdD4HZWhOUVq-NInfsM5alCXnDD8JU_LSm7cM21ZAxa9xvPXgcVEHsg_GqQNEBLp6ChCQM4DRxFH7neaNdW3tex2gS9PdQwpkRAhjppyMbZtkfPYk5G-yg/file?_download_id=96794391626214064712806398791815673992361967442088146779636165715&_log_download_success=1#";
-const AUDIO_HIT ="https://uce3e7d1f991e7f5cee11c610d27.dl.dropboxusercontent.com/cd/0/get/C0GiOHGl73BSYXqWg1fNkSyaUwFHjlrceYrB1GJQqOJHZedu6d23C6EiDCH2UcDBbxXjs03KJs-UWr4B5ulYFemWoToy0sOWL-Hz0VXgy4gjk1ZVxln7av8_b552Dc2e_lxGlBUjF2v8IK1r7vFkvZjN1thtPUJ78kvjizdoigk9JA/file?_download_id=23521150530885038799456711046162672300890532010851766887123329698&_log_download_success=1#";
+/* ================= SOUND =================
+   Priority:
+   1) Query string (?five=...&hit=...) to override
+   2) Local hosting default: /sounds/5min.mp3, /sounds/hit.mp3
+   3) Fallback (old external URLs) if local not found
+================================================ */
+const FALLBACK_5MIN = "https://cdn.discordapp.com/attachments/407555517871816706/1431879965812592791/five_mins_remaining.mp3";
+const FALLBACK_HIT  = "https://cdn.discordapp.com/attachments/407555517871816706/1431878506823946270/999-social-credit-siren.mp3";
+
+const urlParams   = new URLSearchParams(location.search);
+const LOCAL_5MIN  = urlParams.get("five") || "/sounds/5min.mp3";
+const LOCAL_HIT   = urlParams.get("hit")  || "/sounds/hit.mp3";
+
+let AUDIO_5MIN = LOCAL_5MIN;
+let AUDIO_HIT  = LOCAL_HIT;
+
 let audioEnabled = true;
-function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
+
+function getVolume(){
+  return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)));
+}
+
+// ping a URL with HEAD to check availability
+async function exists(url){
+  try{
+    const r = await fetch(url, { method:"HEAD", cache:"no-store" });
+    return r.ok;
+  }catch{ return false; }
+}
+
+// prepare audio sources: prefer local, fallback to external per file
+async function prepareAudioSources(){
+  if(!(await exists(AUDIO_5MIN))) AUDIO_5MIN = FALLBACK_5MIN;
+  if(!(await exists(AUDIO_HIT)))  AUDIO_HIT  = FALLBACK_HIT;
+}
+
+// play with graceful fallback attempt
+async function playAudio(url, vol){
+  try{
+    const a = new Audio(url);
+    a.volume = vol;
+    await a.play();
+    return true;
+  }catch(e){
+    console.warn("Audio play failed for:", url, e);
+    return false;
+  }
+}
+
 async function playCue(kind){
   if(!audioEnabled) return;
-  const url=(kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
-  const a=new Audio(url);
-  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
-  try{await a.play()}catch(e){console.warn("Audio play failed:",e)}
+  const vol  = Math.min(1, getVolume() + (kind==="hit" ? 0.10 : 0));
+  const url1 = (kind==="hit") ? AUDIO_HIT : AUDIO_5MIN;
+  const url2 = (kind==="hit") ? FALLBACK_HIT : FALLBACK_5MIN;
+  // try primary (local/overridden), then fallback external
+  if(!await playAudio(url1, vol)){
+    await playAudio(url2, vol);
+  }
 }
 
 /* ================= PARSER (multi-day) ================= */
@@ -278,7 +325,10 @@ async function syncFromSheetJSONP(){
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
 /* ================= INIT ================= */
-(function init(){
+(async function init(){
+  // prepare audio (check local then fallback)
+  await prepareAudioSources();
+
   // volume (persist)
   const savedVol=Number(localStorage.getItem('bossVol'));
   const vol=Number.isFinite(savedVol)?savedVol:80;
