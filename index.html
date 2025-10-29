@@ -63,6 +63,7 @@
     .chip{padding:.4rem .8rem;font-size:13px}
   }
 
+  /* Overlay unlock (mobile) */
   .unlockBar{
     position:fixed;left:12px;right:12px;bottom:14px;
     background:#16355a;border:1px solid #28507c;color:#e8f0ff;
@@ -110,12 +111,12 @@
   Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
-<!-- Preload from /sounds/ -->
+<!-- โหลดไฟล์เสียงจาก /sounds/ -->
 <audio id="sndM5"  src="/sounds/5min.mp3" preload="auto" playsinline></audio>
-<audio id="sndHit" src="/sounds/hit.mp3" preload="auto" playsinline></audio>
+<audio id="sndHit" src="/sounds/hit.mp3"          preload="auto" playsinline></audio>
 
 <div class="unlockBar" id="unlockBar">
-  📢 Sound locked by your browser. <button id="unlockBtn">🔓 Unlock Sound</button>
+  📢 Sound is locked on mobile. <button id="unlockBtn">🔓 Unlock Sound</button>
 </div>
 
 <script>
@@ -131,29 +132,63 @@ function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,tim
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ===== SOUND (preloaded + unlock) ===== */
+/* ===== SOUND (preloaded + robust unlock) ===== */
 const snd5=document.getElementById('sndM5');
 const sndHit=document.getElementById('sndHit');
-let audioEnabled=true, audioUnlocked=false;
+let audioEnabled=true, audioUnlocked=false, audioCtx=null;
 
 function isMobile(){return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);}
 function showUnlockBar(b){document.getElementById('unlockBar').style.display=b?'block':'none';}
 function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)));}
 
-async function tryUnlockAudio(){
-  const els=[snd5,sndHit];
+/* ปลดล็อกเสียง: resume AudioContext + เล่นแบบ muted แล้ว pause */
+async function userUnlock(){
   try{
-    for(const a of els){ a.muted=true; a.currentTime=0; await a.play(); await a.pause(); a.muted=false; a.currentTime=0; }
-    audioUnlocked=true; showUnlockBar(false);
-  }catch{ audioUnlocked=false; if(isMobile()) showUnlockBar(true); }
+    if(!audioCtx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(AC) audioCtx = new AC();
+    }
+    if(audioCtx && audioCtx.state === 'suspended'){
+      await audioCtx.resume();
+    }
+    for(const a of [snd5,sndHit]){
+      a.muted = true;
+      a.currentTime = 0;
+      await a.play().catch(()=>{});
+      await a.pause?.();
+      a.muted = false;
+      a.currentTime = 0;
+      a.load(); // ให้แน่ใจว่า readyState เติม buffer แล้ว
+    }
+    audioUnlocked = true;
+    showUnlockBar(false);
+  }catch(err){
+    audioUnlocked = false;
+    if(isMobile()) showUnlockBar(true);
+    console.warn('Unlock failed:', err);
+  }
 }
 
 async function playCue(kind){
   if(!audioEnabled) return;
-  const a=(kind==="hit")?sndHit:snd5;
-  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
-  try{ if(!audioUnlocked) await tryUnlockAudio(); a.currentTime=0; await a.play(); }
-  catch(e){ if(isMobile()) showUnlockBar(true); console.warn("Audio play failed:",e); }
+  if(!audioUnlocked) await userUnlock();
+  if(!audioUnlocked) return; // ยังปลดไม่ได้ ก็หยุด
+
+  const base = (kind === 'hit') ? sndHit : snd5;
+  // ใช้ cloneNode เพื่อให้เปิด instance ใหม่เสมอ กัน state ค้าง
+  const inst = base.cloneNode(true);
+  inst.volume = Math.min(1, getVolume() + (kind==='hit'?0.10:0));
+  inst.playsInline = true;
+  try{
+    document.body.appendChild(inst); // บาง browser ต้องอยู่ใน DOM
+    await inst.play();
+    // ล้างหลังเล่นจบ
+    inst.addEventListener('ended', ()=> inst.remove());
+  }catch(e){
+    console.warn('Audio play failed:', e);
+    if(isMobile()) showUnlockBar(true);
+    inst.remove();
+  }
 }
 
 /* ===== PARSER (multi-day) ===== */
@@ -262,7 +297,7 @@ function updateTick(){
   });
 }
 
-/* ===== JSONP to Google Sheet ===== */
+/* ===== Google Sheet (GViz JSONP) ===== */
 function buildGVizJsonpUrl(cb){const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});return `${base}?${params.toString()}`;}
 function jsonp(url,cbName,timeout=12000){
   return new Promise((resolve,reject)=>{
@@ -297,27 +332,28 @@ function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, 
 
 /* ===== INIT ===== */
 (function init(){
+  // Volume persist
   const savedVol=Number(localStorage.getItem('bossVol')); const vol=Number.isFinite(savedVol)?savedVol:80;
   volSlider.value=String(vol); volVal.textContent=`${vol}%`;
-  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; snd5.volume=getVolume(); sndHit.volume=getVolume(); });
+  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
 
+  // Sound toggle persist
   const savedSound=localStorage.getItem('bossSound');
   audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); if(audioEnabled) tryUnlockAudio(); });
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); if(audioEnabled) userUnlock(); });
 
+  // เตรียมปลดล็อกอัตโนมัติ
   if(isMobile()){
     showUnlockBar(true);
-    document.addEventListener('touchstart',()=>{ if(audioEnabled) tryUnlockAudio(); },{once:true});
+    document.addEventListener('pointerdown', ()=>{ if(audioEnabled) userUnlock(); }, {once:true});
   }
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && audioEnabled) tryUnlockAudio(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && audioEnabled) userUnlock(); });
+  document.getElementById('unlockBtn').addEventListener('click', ()=> userUnlock());
 
-  snd5.volume=getVolume(); sndHit.volume=getVolume();
-
+  // เริ่มทำงาน
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
-
-  unlockBtn.addEventListener('click',()=>tryUnlockAudio());
 })();
 </script>
 </body>
