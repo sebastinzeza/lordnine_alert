@@ -74,6 +74,21 @@
     .statusCell .pill{font-size:12px;padding:.18rem .5rem}
     .chip{padding:.4rem .8rem;font-size:13px}
   }
+
+  /* Sound gate overlay */
+  #soundGate{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:9999;
+  }
+  #soundGateCard{
+    background:#121b28;border:1px solid #223044;border-radius:14px;padding:18px 18px 14px;max-width:520px;width:92%;
+    color:#d7e2f2;box-shadow:0 10px 30px rgba(0,0,0,.35)
+  }
+  #soundGate h3{margin:0 0 6px;font-size:18px}
+  #soundGate p{margin:0 0 10px;color:#9fb3ca;font-size:13px}
+  #soundGate .actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px}
+  .btn{background:#152233;color:#fff;border:1px solid #213246;border-radius:10px;padding:10px 12px;cursor:pointer}
+  .btn:hover{border-color:#305070}
 </style>
 </head>
 <body>
@@ -114,9 +129,21 @@
   Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
-<!-- Local audio (put your files on the same host) -->
+<!-- Local audio (same host) -->
 <audio id="aud5"  src="sounds/5min.mp3"  preload="auto"></audio>
 <audio id="audHit" src="sounds/hit.mp3" preload="auto"></audio>
+
+<!-- Sound gate overlay -->
+<div id="soundGate" style="display:none">
+  <div id="soundGateCard">
+    <h3>Enable sound</h3>
+    <p>Tap “Enable” once so your browser allows audio alerts (required on mobile).</p>
+    <div class="actions">
+      <button id="btnTest" class="btn">Test sound</button>
+      <button id="btnEnable" class="btn">Enable</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* =============== CONFIG =============== */
@@ -136,32 +163,36 @@ function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,
 let audioEnabled = true;
 const A5 = document.getElementById('aud5');
 const AH = document.getElementById('audHit');
+const soundGate = document.getElementById('soundGate');
+const btnEnable = document.getElementById('btnEnable');
+const btnTest   = document.getElementById('btnTest');
 
 function getVolume(){return Math.max(0, Math.min(1, (Number(localStorage.getItem("bossVol")||80)/100)));}
 function applyVolume(){const v=getVolume(); A5.volume=v; AH.volume=Math.min(1,v+0.10);}
 
 let audioUnlocked=false;
 async function unlockAudioOnce(){
-  if(audioUnlocked) return;
+  if(audioUnlocked) return true;
   try{
     A5.muted=true; AH.muted=true;
     await A5.play().catch(()=>{}); A5.pause(); A5.currentTime=0;
     await AH.play().catch(()=>{}); AH.pause(); AH.currentTime=0;
     A5.muted=false; AH.muted=false;
     audioUnlocked=true;
-  }catch(_){}
+    return true;
+  }catch(_){ return false; }
 }
-["pointerdown","touchstart","mousedown"].forEach(ev=>{
-  document.addEventListener(ev, unlockAudioOnce, {once:true, passive:true});
-});
 async function playCue(kind){
   if(!audioEnabled) return;
-  await unlockAudioOnce();
   applyVolume();
   try{
     if(kind==="m5"){ A5.currentTime=0; await A5.play(); }
     else           { AH.currentTime=0; await AH.play(); }
-  }catch(err){ console.warn("Audio play failed:", err); }
+  }catch(err){
+    console.warn("Audio play failed:", err);
+    // แสดงเกทถ้ายังไม่ปลดล็อก
+    soundGate.style.display = "flex";
+  }
 }
 
 /* =============== PARSER (multi-day) =============== */
@@ -265,7 +296,6 @@ function updateTick(){
       const r = sec.rows[i]; if(!r) return;
       const ms = atOn(sec.dateStr, b.at).getTime() - nowMs;
 
-      // UI
       r.nameEl.textContent = b.name;
       r.timeEl.textContent = b.at;
       r.dueEl.textContent  = fmtHMS(ms);
@@ -282,18 +312,11 @@ function updateTick(){
         r.badgeEl.textContent = "Waiting";
       }
 
-      // Delay-tolerant triggers
       const key = r.key;
       const st = getOrInitAlertState(key);
       if(!r.muted){
-        // fire once when entering (<=5min and >1min)
-        if(!st.m5 && ms <= 5*60_000 && ms > 60_000){
-          st.m5 = true; playCue('m5');
-        }
-        // fire once when ms <= 0 (even if delayed)
-        if(!st.hit && ms <= 0){
-          st.hit = true; playCue('hit');
-        }
+        if(!st.m5 && ms <= 5*60_000 && ms > 60_000){ st.m5 = true; playCue('m5'); }
+        if(!st.hit && ms <= 0){ st.hit = true; playCue('hit'); }
       }
     });
   });
@@ -328,7 +351,7 @@ async function syncFromSheetJSONP(){
     const raw=extractU4FromGviz(payload);
     if(raw && raw!==lastRaw){
       lastRaw=raw;
-      alertedState={};                // reset one-shot flags only; per-boss mute persists
+      alertedState={};
       sections=parseSchedule(raw);
       buildUI();
       updateTick();
@@ -343,6 +366,14 @@ function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, 
 
 /* =============== INIT =============== */
 (function init(){
+  // show sound gate if autoplay likely blocked (mobile)
+  const savedSound=localStorage.getItem('bossSound');
+  audioEnabled = savedSound!==null ? (savedSound==='true') : true;
+  if(audioEnabled){
+    // ยังต้องการ gesture เพื่อปลดล็อก -> แสดงเกทไว้
+    soundGate.style.display = "flex";
+  }
+
   // volume (persist)
   const savedVol=Number(localStorage.getItem('bossVol'));
   const vol=Number.isFinite(savedVol)?savedVol:80;
@@ -350,10 +381,27 @@ function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, 
   volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; applyVolume(); });
 
   // sound toggle (persist)
-  const savedSound=localStorage.getItem('bossSound');
-  audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); unlockAudioOnce(); });
+  soundToggle.addEventListener('change',e=>{
+    audioEnabled=e.target.checked;
+    localStorage.setItem('bossSound',String(audioEnabled));
+    if(audioEnabled) soundGate.style.display = "flex";
+  });
+
+  // gate buttons
+  btnEnable.addEventListener('click', async ()=>{
+    const ok = await unlockAudioOnce();
+    if(ok){
+      soundGate.style.display = "none";
+      localStorage.setItem('bossSound','true');
+      soundToggle.checked = true;
+      audioEnabled = true;
+    }
+  });
+  btnTest.addEventListener('click', async ()=>{
+    const ok = await unlockAudioOnce();
+    if(ok){ applyVolume(); A5.currentTime=0; A5.play().catch(()=>{}); }
+  });
 
   applyVolume();
   updateTick(); setInterval(updateTick,1000);
