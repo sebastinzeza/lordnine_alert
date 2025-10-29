@@ -46,11 +46,13 @@
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
+  /* ------- Mobile stack ------- */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
+
     .row.cols{
       display:grid;
       grid-template-columns: 1fr auto;
@@ -59,7 +61,9 @@
         "time  alert"
         "due   alert"
         "status alert";
-      row-gap:6px;align-items:start}
+      row-gap:6px;
+      align-items:start;
+    }
     .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
     .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
     .time{grid-area:time;display:block;font-size:13px;color:#cbd5e1}
@@ -71,10 +75,6 @@
     .chip{padding:.4rem .8rem;font-size:13px}
   }
 </style>
-
-<!-- Preload your own audio (improves first-play) -->
-<link rel="preload" as="audio" href="/sounds/5min.mp3">
-<link rel="preload" as="audio" href="/sounds/hit.mp3">
 </head>
 <body>
 <header>
@@ -111,84 +111,60 @@
 </div>
 
 <footer style="color:#7f8ea3;text-align:center;padding:12px 0 26px">
-  Lord Nine Boss Alert V1.3 By DangSoda
+  Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
+<!-- Local audio (place files on your host) -->
+<audio id="aud5"  src="sounds/5min.mp3"  preload="auto"></audio>
+<audio id="audHit" src="sounds/hit.mp3" preload="auto"></audio>
+
 <script>
-/* ================= CONFIG ================= */
+/* =============== CONFIG =============== */
 const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
 const SHEET_NAME = "BossAlert";
 const RANGE_A1   = "U4";
-const SYNC_MS    = 20000;
+const SYNC_MS    = 20000; // 20s
 
-/* ================= TIME (UTC+7) ================= */
+/* =============== TIME (UTC+7) =============== */
 const TZ="Asia/Bangkok";
 const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ================= SOUND =================
-   Priority:
-   1) Query string (?five=...&hit=...) to override
-   2) Local hosting default: /sounds/5min.mp3, /sounds/hit.mp3
-   3) Fallback (old external URLs) if local not found
-================================================ */
-const FALLBACK_5MIN = "https://cdn.discordapp.com/attachments/407555517871816706/1431879965812592791/five_mins_remaining.mp3";
-const FALLBACK_HIT  = "https://cdn.discordapp.com/attachments/407555517871816706/1431878506823946270/999-social-credit-siren.mp3";
-
-const urlParams   = new URLSearchParams(location.search);
-const LOCAL_5MIN  = urlParams.get("five") || "/sounds/5min.mp3";
-const LOCAL_HIT   = urlParams.get("hit")  || "/sounds/hit.mp3";
-
-let AUDIO_5MIN = LOCAL_5MIN;
-let AUDIO_HIT  = LOCAL_HIT;
-
+/* =============== SOUND (local files; mobile-safe) =============== */
 let audioEnabled = true;
+const A5 = document.getElementById('aud5');
+const AH = document.getElementById('audHit');
 
-function getVolume(){
-  return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)));
-}
+function getVolume(){return Math.max(0, Math.min(1, (Number(localStorage.getItem("bossVol")||80)/100)));}
+function applyVolume(){const v=getVolume(); A5.volume=v; AH.volume=Math.min(1,v+0.10);}
 
-// ping a URL with HEAD to check availability
-async function exists(url){
+let audioUnlocked=false;
+async function unlockAudioOnce(){
+  if(audioUnlocked) return;
   try{
-    const r = await fetch(url, { method:"HEAD", cache:"no-store" });
-    return r.ok;
-  }catch{ return false; }
+    A5.muted=true; AH.muted=true;
+    await A5.play().catch(()=>{}); A5.pause(); A5.currentTime=0;
+    await AH.play().catch(()=>{}); AH.pause(); AH.currentTime=0;
+    A5.muted=false; AH.muted=false;
+    audioUnlocked=true;
+  }catch(_){}
 }
-
-// prepare audio sources: prefer local, fallback to external per file
-async function prepareAudioSources(){
-  if(!(await exists(AUDIO_5MIN))) AUDIO_5MIN = FALLBACK_5MIN;
-  if(!(await exists(AUDIO_HIT)))  AUDIO_HIT  = FALLBACK_HIT;
-}
-
-// play with graceful fallback attempt
-async function playAudio(url, vol){
-  try{
-    const a = new Audio(url);
-    a.volume = vol;
-    await a.play();
-    return true;
-  }catch(e){
-    console.warn("Audio play failed for:", url, e);
-    return false;
-  }
-}
-
+["pointerdown","touchstart","mousedown"].forEach(ev=>{
+  document.addEventListener(ev, unlockAudioOnce, {once:true, passive:true});
+});
 async function playCue(kind){
   if(!audioEnabled) return;
-  const vol  = Math.min(1, getVolume() + (kind==="hit" ? 0.10 : 0));
-  const url1 = (kind==="hit") ? AUDIO_HIT : AUDIO_5MIN;
-  const url2 = (kind==="hit") ? FALLBACK_HIT : FALLBACK_5MIN;
-  // try primary (local/overridden), then fallback external
-  if(!await playAudio(url1, vol)){
-    await playAudio(url2, vol);
-  }
+  await unlockAudioOnce();
+  applyVolume();
+  try{
+    if(kind==="m5"){ A5.currentTime=0; await A5.play(); }
+    else           { AH.currentTime=0; await AH.play(); }
+  }catch(err){ console.warn("Audio play failed:", err); }
 }
 
-/* ================= PARSER (multi-day) ================= */
+/* =============== PARSER (multi-day) =============== */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -216,10 +192,10 @@ function parseSchedule(text){
   return out;
 }
 
-/* ================= STATE & DOM REFS ================= */
-let sections=[];              // [{dateStr,label,items[],rows[]}]
-let alertedState={};          // per-row, reset on new data
-let lastRaw="";               // last pulled U4 text
+/* =============== STATE & DOM =============== */
+let sections=[];        // [{dateStr,label,items[],rows[]}]
+let alertedState={};    // one-shot flags per row
+let lastRaw="";
 
 const MUTE_STORE_KEY="bossMuteMapV1";
 function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
@@ -236,7 +212,7 @@ const firstDayLabel=document.getElementById('firstDayLabel');
 const syncStatus=document.getElementById('syncStatus');
 const soundToggle=document.getElementById('soundToggle');
 
-/* ================= UI BUILD & TICK ================= */
+/* =============== UI BUILD & TICK =============== */
 function applyMuteBtnUI(r){
   if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
   else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
@@ -262,25 +238,43 @@ function buildUI(){
       const key=rowKeyOf(sec,item);
       const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key};
       applyMuteBtnUI(r);
-      muteBtn.addEventListener('click',()=>{ r.muted=!r.muted; if(r.muted) muteMap[key]=true; else delete muteMap[key]; saveMuteMap(muteMap); applyMuteBtnUI(r); });
+      muteBtn.addEventListener('click',()=>{
+        r.muted=!r.muted;
+        if(r.muted) muteMap[key]=true; else delete muteMap[key];
+        saveMuteMap(muteMap);
+        applyMuteBtnUI(r);
+      });
       sec.rows.push(r);
     });
   });
-  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
+  else{ firstDayHint.style.display='none'; }
+}
+function getOrInitAlertState(key){
+  if(!(key in alertedState)) alertedState[key]={m5:false,hit:false};
+  return alertedState[key];
 }
 function updateTick(){
-  nowEl.textContent=fmtNow(); const nowMs=Date.now();
+  nowEl.textContent=fmtNow();
+  const nowMs=Date.now();
   sections.forEach(sec=>{
     sec.items.forEach((b,i)=>{
       const r=sec.rows[i]; if(!r) return;
       const ms=atOn(sec.dateStr,b.at).getTime()-nowMs;
-      r.nameEl.textContent=b.name; r.timeEl.textContent=b.at; r.dueEl.textContent=fmtHMS(ms); r.rowEl.classList.toggle('past',ms<0);
+
+      r.nameEl.textContent=b.name;
+      r.timeEl.textContent=b.at;
+      r.dueEl.textContent=fmtHMS(ms);
+      r.rowEl.classList.toggle('past', ms<0);
+
       r.badgeEl.className='pill';
-      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
+      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot');  r.badgeEl.textContent="It's time!"; }
       else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
       else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
       else { r.badgeEl.textContent="Waiting"; }
-      const key=r.key; const st=(alertedState[key] ||= {});
+
+      const key=r.key;
+      const st=getOrInitAlertState(key);
       if(!r.muted){
         if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; playCue('m5'); }
         if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; playCue('hit'); }
@@ -289,64 +283,69 @@ function updateTick(){
   });
 }
 
-/* ================= GViz JSONP ================= */
-function buildGVizJsonpUrl(callbackName){
+/* =============== GViz JSONP =============== */
+function buildGVizJsonpUrl(cb){
   const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-  const params=new URLSearchParams({tqx:`out:json;responseHandler:${callbackName}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
+  const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
   return `${base}?${params.toString()}`;
 }
-function jsonp(url,cbName,timeout=12000){
+function jsonp(url,cb,timeout=12000){
   return new Promise((resolve,reject)=>{
     const s=document.createElement('script'); let done=false;
     const timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))},timeout);
-    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cbName];s.remove();}
-    window[cbName]=payload=>{cleanup();resolve(payload)};
+    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cb];s.remove();}
+    window[cb]=payload=>{cleanup();resolve(payload)};
     s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
   });
 }
 function extractU4FromGviz(resp){
-  if(!resp?.table?.rows?.length) throw new Error('No data in BossAlert!U4');
-  const cell=resp.table.rows[0].c?.[0];
-  return String(cell?.v ?? cell?.f ?? '').trim();
+  if(!resp || !resp.table || !resp.table.rows || !resp.table.rows.length) throw new Error('No data in BossAlert!U4');
+  const cell=resp.table.rows[0].c && resp.table.rows[0].c[0];
+  return String((cell && (cell.v!=null?cell.v:cell.f)) || '').trim();
 }
 
-/* ================= AUTO SYNC ================= */
+/* =============== AUTO SYNC =============== */
 async function syncFromSheetJSONP(){
   try{
     const cb="cb_"+Math.random().toString(36).slice(2);
     const payload=await jsonp(buildGVizJsonpUrl(cb),cb);
     const raw=extractU4FromGviz(payload);
     if(raw && raw!==lastRaw){
-      lastRaw=raw; alertedState={}; sections=parseSchedule(raw); buildUI(); updateTick();
+      lastRaw=raw;
+      alertedState={};                // resetเฉพาะธง one-shot; muteMap ยังอยู่
+      sections=parseSchedule(raw);
+      buildUI();
+      updateTick();
     }
     syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
-  }catch(e){ console.warn(e); syncStatus.textContent=`Sync error: ${e.message}`; }
+  }catch(e){
+    console.warn(e);
+    syncStatus.textContent=`Sync error: ${e.message}`;
+  }
 }
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* ================= INIT ================= */
-(async function init(){
-  // prepare audio (check local then fallback)
-  await prepareAudioSources();
-
+/* =============== INIT =============== */
+(function init(){
   // volume (persist)
   const savedVol=Number(localStorage.getItem('bossVol'));
   const vol=Number.isFinite(savedVol)?savedVol:80;
+  const volSlider=document.getElementById('vol');
+  const volVal=document.getElementById('volVal');
   volSlider.value=String(vol); volVal.textContent=`${vol}%`;
-  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
+  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; applyVolume(); });
 
   // sound toggle (persist)
   const savedSound=localStorage.getItem('bossSound');
   audioEnabled = savedSound!==null ? (savedSound==='true') : true;
+  const soundToggle=document.getElementById('soundToggle');
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); });
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); unlockAudioOnce(); });
 
+  applyVolume();
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
 })();
 </script>
 </body>
 </html>
-
-
-
