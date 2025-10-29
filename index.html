@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Boss Countdown • Auto Sync + Per-Boss Mute (UTC+7)</title>
 <style>
@@ -34,19 +34,23 @@
   .dayhead{margin:20px 0 8px;color:#dfe8f7;font-weight:800;letter-spacing:.2px}
   .cols{display:grid;grid-template-columns:2fr 110px 140px 170px 120px;gap:8px;align-items:center}
   .head{color:#8aa0b8;font-weight:700;padding:8px 12px}
-  .row{background:var(--card);border:1px solid #1c2430;border-radius:10px;padding:12px;margin-bottom:10px}
+  .row{background:var(--card);border:1px solid #1c2430;border-radius:10px;padding:12px;margin-bottom:10px;transition:opacity .15s ease}
   .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .time{font-weight:700}
   .due{font-variant-numeric:tabular-nums}
   .pill{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:12px;border:1px solid #223044;color:#8aa0b8}
   .soon{color:var(--warn);border-color:#544a13}
   .hot{color:#fff;background:var(--hot);border-color:transparent}
-  .past{opacity:.5}
+  .pastRow{opacity:.55}
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;border-radius:999px;padding:.35rem .7rem;background:#121b28;border:1px solid #223044;color:#cfd9e7;cursor:pointer}
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
-  /* Mobile layout */
+  /* containers for grouping */
+  .daywrap .pastGroup{margin-top:6px}
+  .daywrap .pastGroup .row{opacity:.6}
+
+  /* ------- Mobile stack (no overlap) ------- */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
@@ -74,21 +78,6 @@
     .statusCell .pill{font-size:12px;padding:.18rem .5rem}
     .chip{padding:.4rem .8rem;font-size:13px}
   }
-
-  /* Sound gate overlay */
-  #soundGate{
-    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:9999;
-  }
-  #soundGateCard{
-    background:#121b28;border:1px solid #223044;border-radius:14px;padding:18px 18px 14px;max-width:520px;width:92%;
-    color:#d7e2f2;box-shadow:0 10px 30px rgba(0,0,0,.35)
-  }
-  #soundGate h3{margin:0 0 6px;font-size:18px}
-  #soundGate p{margin:0 0 10px;color:#9fb3ca;font-size:13px}
-  #soundGate .actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px}
-  .btn{background:#152233;color:#fff;border:1px solid #213246;border-radius:10px;padding:10px 12px;cursor:pointer}
-  .btn:hover{border-color:#305070}
 </style>
 </head>
 <body>
@@ -107,7 +96,7 @@
       <span class="control-title">Enable sound</span>
     </label>
     <div class="control volume">
-      <span class="control-title">Volume</span>
+      <span class="control-title">Vol</span>
       <input id="vol" type="range" min="0" max="100" step="1"><span id="volVal">80%</span>
     </div>
   </div>
@@ -129,73 +118,34 @@
   Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
-<!-- Local audio (same host) -->
-<audio id="aud5"  src="sounds/5min.mp3"  preload="auto"></audio>
-<audio id="audHit" src="sounds/hit.mp3" preload="auto"></audio>
-
-<!-- Sound gate overlay -->
-<div id="soundGate" style="display:none">
-  <div id="soundGateCard">
-    <h3>Enable sound</h3>
-    <p>Tap “Enable” once so your browser allows audio alerts (required on mobile).</p>
-    <div class="actions">
-      <button id="btnTest" class="btn">Test sound</button>
-      <button id="btnEnable" class="btn">Enable</button>
-    </div>
-  </div>
-</div>
-
 <script>
-/* =============== CONFIG =============== */
+/* ============== CONFIG ============== */
 const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
 const SHEET_NAME = "BossAlert";
 const RANGE_A1   = "U4";
 const SYNC_MS    = 20000;
 
-/* =============== TIME (UTC+7) =============== */
+/* ============== TIME (UTC+7) ============== */
 const TZ="Asia/Bangkok";
 const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* =============== SOUND (local files; mobile-safe) =============== */
+/* ============== SOUND ============== */
+const AUDIO_5MIN="/sounds/5min.mp3";  // วางไฟล์ในโฮสต์ของคุณ เช่น /audio/...
+const AUDIO_HIT ="/sounds/hit.mp3";
 let audioEnabled = true;
-const A5 = document.getElementById('aud5');
-const AH = document.getElementById('audHit');
-const soundGate = document.getElementById('soundGate');
-const btnEnable = document.getElementById('btnEnable');
-const btnTest   = document.getElementById('btnTest');
-
-function getVolume(){return Math.max(0, Math.min(1, (Number(localStorage.getItem("bossVol")||80)/100)));}
-function applyVolume(){const v=getVolume(); A5.volume=v; AH.volume=Math.min(1,v+0.10);}
-
-let audioUnlocked=false;
-async function unlockAudioOnce(){
-  if(audioUnlocked) return true;
-  try{
-    A5.muted=true; AH.muted=true;
-    await A5.play().catch(()=>{}); A5.pause(); A5.currentTime=0;
-    await AH.play().catch(()=>{}); AH.pause(); AH.currentTime=0;
-    A5.muted=false; AH.muted=false;
-    audioUnlocked=true;
-    return true;
-  }catch(_){ return false; }
-}
+function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
 async function playCue(kind){
   if(!audioEnabled) return;
-  applyVolume();
-  try{
-    if(kind==="m5"){ A5.currentTime=0; await A5.play(); }
-    else           { AH.currentTime=0; await AH.play(); }
-  }catch(err){
-    console.warn("Audio play failed:", err);
-    // แสดงเกทถ้ายังไม่ปลดล็อก
-    soundGate.style.display = "flex";
-  }
+  const url=(kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
+  const a=new Audio(url);
+  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
+  try{await a.play()}catch(e){console.warn("Audio play failed:",e)}
 }
 
-/* =============== PARSER (multi-day) =============== */
+/* ============== PARSER (multi-day) ============== */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -208,7 +158,7 @@ function parseSchedule(text){
       sawHeader=true;
       const[,dow,dd,MM,YYYY]=d; const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
       const dateStr=`${YYYY}-${MM2}-${dd2}`;
-      cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[]};
+      cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[],upEl:null,pastEl:null};
       out.push(cur); continue;
     }
     const m=[...line.matchAll(/(\d{1,2}):(\d{2})/g)];
@@ -223,9 +173,9 @@ function parseSchedule(text){
   return out;
 }
 
-/* =============== STATE & DOM =============== */
-let sections=[];        // [{dateStr,label,items[],rows[]}]
-let alertedState={};    // one-shot flags per row
+/* ============== STATE & DOM ============== */
+let sections=[];              // [{dateStr,label,items,rows,upEl,pastEl}]
+let alertedState={};
 let lastRaw="";
 
 const MUTE_STORE_KEY="bossMuteMapV1";
@@ -243,7 +193,7 @@ const firstDayLabel=document.getElementById('firstDayLabel');
 const syncStatus=document.getElementById('syncStatus');
 const soundToggle=document.getElementById('soundToggle');
 
-/* =============== UI BUILD =============== */
+/* ============== UI BUILD (with Upcoming/Past containers) ============== */
 function applyMuteBtnUI(r){
   if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
   else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
@@ -251,8 +201,18 @@ function applyMuteBtnUI(r){
 function buildUI(){
   listEl.innerHTML='';
   sections.forEach(sec=>{
-    const h=document.createElement('div'); h.className='dayhead'; h.textContent=`🕐 ${sec.label}`; listEl.appendChild(h);
+    // header
+    const head=document.createElement('div'); head.className='dayhead'; head.textContent=`🕐 ${sec.label}`;
+    // day wrapper with two groups
+    const wrap=document.createElement('div'); wrap.className='daywrap';
+    const up=document.createElement('div'); up.className='upGroup';
+    const past=document.createElement('div'); past.className='pastGroup';
+    wrap.append(up,past);
+    listEl.append(head,wrap);
+    sec.upEl=up; sec.pastEl=past;
     sec.rows=[];
+
+    // rows initially go to Upcoming; updateTick จะย้ายเองเมื่อเกินเวลา
     sec.items.forEach(item=>{
       const row=document.createElement('div'); row.className='row cols';
       const nameEl=document.createElement('div'); nameEl.className='name';
@@ -264,146 +224,114 @@ function buildUI(){
       const alertCell=document.createElement('div'); alertCell.className='alertCell';
       const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert';
       alertCell.appendChild(muteBtn);
-      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); listEl.appendChild(row);
+
+      row.append(nameEl,timeEl,dueEl,statusCell,alertCell);
+      up.appendChild(row);
 
       const key=rowKeyOf(sec,item);
-      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key};
+      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key,isPast:false,sec};
       applyMuteBtnUI(r);
-      muteBtn.addEventListener('click',()=>{
-        r.muted=!r.muted;
-        if(r.muted) muteMap[key]=true; else delete muteMap[key];
-        saveMuteMap(muteMap);
-        applyMuteBtnUI(r);
-      });
+      muteBtn.addEventListener('click',()=>{ r.muted=!r.muted; if(r.muted) muteMap[key]=true; else delete muteMap[key]; saveMuteMap(muteMap); applyMuteBtnUI(r); });
       sec.rows.push(r);
     });
   });
-  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
-  else{ firstDayHint.style.display='none'; }
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
 }
 
-/* =============== TICK (delay-tolerant alerts) =============== */
-function getOrInitAlertState(key){
-  if(!(key in alertedState)) alertedState[key]={m5:false,hit:false};
-  return alertedState[key];
-}
+/* ============== TICK: update + move to Past ============== */
 function updateTick(){
-  nowEl.textContent = fmtNow();
-  const nowMs = Date.now();
+  nowEl.textContent=fmtNow(); const nowMs=Date.now();
+  sections.forEach(sec=>{
+    sec.items.forEach((b,i)=>{
+      const r=sec.rows[i]; if(!r) return;
+      const tgt=atOn(sec.dateStr,b.at); const ms=tgt.getTime()-nowMs;
 
-  sections.forEach((sec)=>{
-    sec.items.forEach((b, i)=>{
-      const r = sec.rows[i]; if(!r) return;
-      const ms = atOn(sec.dateStr, b.at).getTime() - nowMs;
+      // texts
+      r.nameEl.textContent=b.name;
+      r.timeEl.textContent=b.at;
+      r.dueEl.textContent=fmtHMS(ms);
 
-      r.nameEl.textContent = b.name;
-      r.timeEl.textContent = b.at;
-      r.dueEl.textContent  = fmtHMS(ms);
-      r.rowEl.classList.toggle('past', ms < 0);
+      // badge
+      r.badgeEl.className='pill';
+      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
+      else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
+      else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
+      else { r.badgeEl.textContent="Waiting"; }
 
-      r.badgeEl.className = 'pill';
-      if (ms <= 0 && ms > -60_000){
-        r.badgeEl.classList.add('hot'); r.badgeEl.textContent = "It's time!";
-      } else if (ms <= 60_000 && ms > 0){
-        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Less than 1 min";
-      } else if (ms <= 5*60_000 && ms > 60_000){
-        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Within 5 min";
-      } else {
-        r.badgeEl.textContent = "Waiting";
+      // move between groups
+      if(ms < -60_000 && !r.isPast){
+        r.isPast=true;
+        r.rowEl.classList.add('pastRow');
+        r.sec.pastEl.appendChild(r.rowEl);
+      }else if(ms >= -60_000 && r.isPast){
+        r.isPast=false;
+        r.rowEl.classList.remove('pastRow');
+        r.sec.upEl.appendChild(r.rowEl);
       }
 
-      const key = r.key;
-      const st = getOrInitAlertState(key);
+      // sound (one-shot, respect mute)
+      const key=r.key; const st=(alertedState[key] ||= {});
       if(!r.muted){
-        if(!st.m5 && ms <= 5*60_000 && ms > 60_000){ st.m5 = true; playCue('m5'); }
-        if(!st.hit && ms <= 0){ st.hit = true; playCue('hit'); }
+        if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; playCue('m5'); }
+        if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; playCue('hit'); }
       }
     });
   });
 }
 
-/* =============== GViz JSONP =============== */
-function buildGVizJsonpUrl(cb){
+/* ============== GViz JSONP ============== */
+function buildGVizJsonpUrl(callbackName){
   const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-  const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
+  const params=new URLSearchParams({tqx:`out:json;responseHandler:${callbackName}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
   return `${base}?${params.toString()}`;
 }
-function jsonp(url,cb,timeout=12000){
+function jsonp(url,cbName,timeout=12000){
   return new Promise((resolve,reject)=>{
     const s=document.createElement('script'); let done=false;
     const timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))},timeout);
-    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cb];s.remove();}
-    window[cb]=payload=>{cleanup();resolve(payload)};
+    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cbName];s.remove();}
+    window[cbName]=payload=>{cleanup();resolve(payload)};
     s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
   });
 }
 function extractU4FromGviz(resp){
-  if(!resp || !resp.table || !resp.table.rows || !resp.table.rows.length) throw new Error('No data in BossAlert!U4');
-  const cell=resp.table.rows[0].c && resp.table.rows[0].c[0];
-  return String((cell && (cell.v!=null?cell.v:cell.f)) || '').trim();
+  if(!resp?.table?.rows?.length) throw new Error('No data in BossAlert!U4');
+  const cell=resp.table.rows[0].c?.[0];
+  return String(cell?.v ?? cell?.f ?? '').trim();
 }
 
-/* =============== AUTO SYNC =============== */
+/* ============== AUTO SYNC ============== */
+let sectionsRaw=""; // for detecting real change
 async function syncFromSheetJSONP(){
   try{
     const cb="cb_"+Math.random().toString(36).slice(2);
     const payload=await jsonp(buildGVizJsonpUrl(cb),cb);
     const raw=extractU4FromGviz(payload);
-    if(raw && raw!==lastRaw){
-      lastRaw=raw;
-      alertedState={};
+    if(raw && raw!==sectionsRaw){
+      sectionsRaw=raw; alertedState={};
       sections=parseSchedule(raw);
       buildUI();
       updateTick();
     }
     syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
-  }catch(e){
-    console.warn(e);
-    syncStatus.textContent=`Sync error: ${e.message}`;
-  }
+  }catch(e){ console.warn(e); syncStatus.textContent=`Error ${e.name}: ${e.message}`; }
 }
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* =============== INIT =============== */
+/* ============== INIT (persist toggle & volume) ============== */
 (function init(){
-  // show sound gate if autoplay likely blocked (mobile)
-  const savedSound=localStorage.getItem('bossSound');
-  audioEnabled = savedSound!==null ? (savedSound==='true') : true;
-  if(audioEnabled){
-    // ยังต้องการ gesture เพื่อปลดล็อก -> แสดงเกทไว้
-    soundGate.style.display = "flex";
-  }
-
   // volume (persist)
   const savedVol=Number(localStorage.getItem('bossVol'));
   const vol=Number.isFinite(savedVol)?savedVol:80;
   volSlider.value=String(vol); volVal.textContent=`${vol}%`;
-  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; applyVolume(); });
+  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
 
   // sound toggle (persist)
+  const savedSound=localStorage.getItem('bossSound');
+  audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{
-    audioEnabled=e.target.checked;
-    localStorage.setItem('bossSound',String(audioEnabled));
-    if(audioEnabled) soundGate.style.display = "flex";
-  });
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); });
 
-  // gate buttons
-  btnEnable.addEventListener('click', async ()=>{
-    const ok = await unlockAudioOnce();
-    if(ok){
-      soundGate.style.display = "none";
-      localStorage.setItem('bossSound','true');
-      soundToggle.checked = true;
-      audioEnabled = true;
-    }
-  });
-  btnTest.addEventListener('click', async ()=>{
-    const ok = await unlockAudioOnce();
-    if(ok){ applyVolume(); A5.currentTime=0; A5.play().catch(()=>{}); }
-  });
-
-  applyVolume();
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
 })();
