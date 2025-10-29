@@ -148,8 +148,8 @@ function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Mat
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
 /* ================== STATE (schedule/mute/alerts) ================== */
-let sections = [];        // [{dateStr,label,items:[{name,at}],rows:[]}]
-let alertedState = {};    // { rowKey: {m5:boolean, hit:boolean} } — reset on new sheet text
+let sections = [];
+let alertedState = {};
 let lastRaw = "";
 
 const MUTE_STORE_KEY="bossMuteMapV1";
@@ -234,12 +234,14 @@ async function playBuffer(type, tries=2){
 }
 async function playCue(kind){ return playBuffer(kind==='m5'?'m5':'hit'); }
 
-/* ปุ่มปลดล็อกเสียง + ทดสอบ */
+/* ===== ปุ่มปลดล็อกเสียง (ไม่เล่นเสียงอัตโนมัติ) ===== */
 btnEnable.addEventListener('click', async ()=>{
   const ok = await ensureAudioCtx();
   if(ok){
-    const loaded = await loadAudioBuffers();
-    if(loaded){ hideGate(); playBuffer('m5'); }
+    await loadAudioBuffers();     // แค่โหลดเสียงล่วงหน้า
+    hideGate();                   // ปิด overlay
+  }else{
+    showGate();
   }
 });
 btnTest.addEventListener('click', async ()=>{
@@ -414,7 +416,7 @@ function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, 
   soundToggle.addEventListener('change',e=>{
     audioEnabled=e.target.checked;
     localStorage.setItem('bossSound',String(audioEnabled));
-    if(audioEnabled) showGate();
+    if(audioEnabled) showGate();   // แค่แสดง overlay ให้กด Enable/ทดสอบ ไม่เล่นเสียงเอง
   });
 
   // volume (persist)
