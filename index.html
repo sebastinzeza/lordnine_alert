@@ -46,12 +46,28 @@
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
+  /* containers for grouping */
+  .daywrap .pastGroup{margin-top:6px}
+  .daywrap .pastGroup .row{opacity:.6}
+
+  /* ------- Mobile stack (no overlap) ------- */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
-    .row.cols{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name alert" "time alert" "due alert" "status alert";row-gap:6px;align-items:start}
+
+    .row.cols{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "name  alert"
+        "time  alert"
+        "due   alert"
+        "status alert";
+      row-gap:6px;
+      align-items:start;
+    }
     .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
     .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
     .time{grid-area:time;display:block;font-size:13px;color:#cbd5e1}
@@ -62,15 +78,6 @@
     .statusCell .pill{font-size:12px;padding:.18rem .5rem}
     .chip{padding:.4rem .8rem;font-size:13px}
   }
-
-  /* Overlay unlock (mobile) */
-  .unlockBar{
-    position:fixed;left:12px;right:12px;bottom:14px;
-    background:#16355a;border:1px solid #28507c;color:#e8f0ff;
-    border-radius:12px;padding:10px 14px;display:none;
-    box-shadow:0 6px 18px rgba(0,0,0,.35);z-index:9999
-  }
-  .unlockBar button{margin-left:10px;border-radius:10px;border:1px solid #3b6aa3;background:#214c82;color:#fff;padding:8px 12px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -86,7 +93,7 @@
     <label class="control switch" title="Enable/disable all sounds">
       <input id="soundToggle" type="checkbox" checked>
       <span class="switch-ui"></span>
-      <span class="control-title">Enable Sound</span>
+      <span class="control-title">Enable sound</span>
     </label>
     <div class="control volume">
       <span class="control-title">Vol</span>
@@ -111,87 +118,34 @@
   Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
-<!-- โหลดไฟล์เสียงจาก /sounds/ -->
-<audio id="sndM5"  src="/sounds/5min.mp3" preload="auto" playsinline></audio>
-<audio id="sndHit" src="/sounds/hit.mp3"          preload="auto" playsinline></audio>
-
-<div class="unlockBar" id="unlockBar">
-  📢 Sound is locked on mobile. <button id="unlockBtn">🔓 Unlock Sound</button>
-</div>
-
 <script>
-/* ===== CONFIG ===== */
-const SHEET_ID="1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
-const SHEET_NAME="BossAlert";
-const RANGE_A1="U4";
-const SYNC_MS=20000;
+/* ============== CONFIG ============== */
+const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
+const SHEET_NAME = "BossAlert";
+const RANGE_A1   = "U4";
+const SYNC_MS    = 20000;
 
-/* ===== TIME (UTC+7) ===== */
-const TZ="Asia/Bangkok"; const BKK_OFFSET_MS=7*60*60*1000;
+/* ============== TIME (UTC+7) ============== */
+const TZ="Asia/Bangkok";
+const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ===== SOUND (preloaded + robust unlock) ===== */
-const snd5=document.getElementById('sndM5');
-const sndHit=document.getElementById('sndHit');
-let audioEnabled=true, audioUnlocked=false, audioCtx=null;
-
-function isMobile(){return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);}
-function showUnlockBar(b){document.getElementById('unlockBar').style.display=b?'block':'none';}
-function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)));}
-
-/* ปลดล็อกเสียง: resume AudioContext + เล่นแบบ muted แล้ว pause */
-async function userUnlock(){
-  try{
-    if(!audioCtx){
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if(AC) audioCtx = new AC();
-    }
-    if(audioCtx && audioCtx.state === 'suspended'){
-      await audioCtx.resume();
-    }
-    for(const a of [snd5,sndHit]){
-      a.muted = true;
-      a.currentTime = 0;
-      await a.play().catch(()=>{});
-      await a.pause?.();
-      a.muted = false;
-      a.currentTime = 0;
-      a.load(); // ให้แน่ใจว่า readyState เติม buffer แล้ว
-    }
-    audioUnlocked = true;
-    showUnlockBar(false);
-  }catch(err){
-    audioUnlocked = false;
-    if(isMobile()) showUnlockBar(true);
-    console.warn('Unlock failed:', err);
-  }
-}
-
+/* ============== SOUND ============== */
+const AUDIO_5MIN="/sounds/5min.mp3";  // วางไฟล์ในโฮสต์ของคุณ เช่น /audio/...
+const AUDIO_HIT ="/sounds/hit.mp3";
+let audioEnabled = true;
+function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
 async function playCue(kind){
   if(!audioEnabled) return;
-  if(!audioUnlocked) await userUnlock();
-  if(!audioUnlocked) return; // ยังปลดไม่ได้ ก็หยุด
-
-  const base = (kind === 'hit') ? sndHit : snd5;
-  // ใช้ cloneNode เพื่อให้เปิด instance ใหม่เสมอ กัน state ค้าง
-  const inst = base.cloneNode(true);
-  inst.volume = Math.min(1, getVolume() + (kind==='hit'?0.10:0));
-  inst.playsInline = true;
-  try{
-    document.body.appendChild(inst); // บาง browser ต้องอยู่ใน DOM
-    await inst.play();
-    // ล้างหลังเล่นจบ
-    inst.addEventListener('ended', ()=> inst.remove());
-  }catch(e){
-    console.warn('Audio play failed:', e);
-    if(isMobile()) showUnlockBar(true);
-    inst.remove();
-  }
+  const url=(kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
+  const a=new Audio(url);
+  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
+  try{await a.play()}catch(e){console.warn("Audio play failed:",e)}
 }
 
-/* ===== PARSER (multi-day) ===== */
+/* ============== PARSER (multi-day) ============== */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -201,8 +155,8 @@ function parseSchedule(text){
   for(const line of lines){
     const d=line.match(DAY_RE);
     if(d){
-      sawHeader=true; const[,dow,dd,MM,YYYY]=d;
-      const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
+      sawHeader=true;
+      const[,dow,dd,MM,YYYY]=d; const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
       const dateStr=`${YYYY}-${MM2}-${dd2}`;
       cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[],upEl:null,pastEl:null};
       out.push(cur); continue;
@@ -219,13 +173,16 @@ function parseSchedule(text){
   return out;
 }
 
-/* ===== STATE & DOM ===== */
-let sections=[], alertedState={}, lastRaw="";
+/* ============== STATE & DOM ============== */
+let sections=[];              // [{dateStr,label,items,rows,upEl,pastEl}]
+let alertedState={};
+let lastRaw="";
+
 const MUTE_STORE_KEY="bossMuteMapV1";
 function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
 function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
-let muteMap=loadMuteMap();
-function rowKeyOf(sec,item){const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase();return `${sec.dateStr}|${item.at}|${clean}`;}
+let muteMap = loadMuteMap();
+function rowKeyOf(sec,item){ const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase(); return `${sec.dateStr}|${item.at}|${clean}`; }
 
 const nowEl=document.getElementById('now');
 const listEl=document.getElementById('list');
@@ -235,19 +192,27 @@ const firstDayHint=document.getElementById('firstDayHint');
 const firstDayLabel=document.getElementById('firstDayLabel');
 const syncStatus=document.getElementById('syncStatus');
 const soundToggle=document.getElementById('soundToggle');
-const unlockBtn=document.getElementById('unlockBtn');
 
-/* ===== UI BUILD + GROUP PAST ===== */
-function applyMuteBtnUI(r){ if(r.muted){r.muteBtn.classList.add('muted');r.muteBtn.textContent='🔕 Muted';}else{r.muteBtn.classList.remove('muted');r.muteBtn.textContent='🔔 Alert';} }
+/* ============== UI BUILD (with Upcoming/Past containers) ============== */
+function applyMuteBtnUI(r){
+  if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
+  else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
+}
 function buildUI(){
   listEl.innerHTML='';
   sections.forEach(sec=>{
+    // header
     const head=document.createElement('div'); head.className='dayhead'; head.textContent=`🕐 ${sec.label}`;
+    // day wrapper with two groups
     const wrap=document.createElement('div'); wrap.className='daywrap';
     const up=document.createElement('div'); up.className='upGroup';
     const past=document.createElement('div'); past.className='pastGroup';
-    wrap.append(up,past); listEl.append(head,wrap);
-    sec.upEl=up; sec.pastEl=past; sec.rows=[];
+    wrap.append(up,past);
+    listEl.append(head,wrap);
+    sec.upEl=up; sec.pastEl=past;
+    sec.rows=[];
+
+    // rows initially go to Upcoming; updateTick จะย้ายเองเมื่อเกินเวลา
     sec.items.forEach(item=>{
       const row=document.createElement('div'); row.className='row cols';
       const nameEl=document.createElement('div'); nameEl.className='name';
@@ -259,7 +224,9 @@ function buildUI(){
       const alertCell=document.createElement('div'); alertCell.className='alertCell';
       const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert';
       alertCell.appendChild(muteBtn);
-      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); up.appendChild(row);
+
+      row.append(nameEl,timeEl,dueEl,statusCell,alertCell);
+      up.appendChild(row);
 
       const key=rowKeyOf(sec,item);
       const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key,isPast:false,sec};
@@ -271,23 +238,38 @@ function buildUI(){
   if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
 }
 
-/* ===== TICK ===== */
+/* ============== TICK: update + move to Past ============== */
 function updateTick(){
   nowEl.textContent=fmtNow(); const nowMs=Date.now();
   sections.forEach(sec=>{
     sec.items.forEach((b,i)=>{
       const r=sec.rows[i]; if(!r) return;
       const tgt=atOn(sec.dateStr,b.at); const ms=tgt.getTime()-nowMs;
-      r.nameEl.textContent=b.name; r.timeEl.textContent=b.at; r.dueEl.textContent=fmtHMS(ms);
+
+      // texts
+      r.nameEl.textContent=b.name;
+      r.timeEl.textContent=b.at;
+      r.dueEl.textContent=fmtHMS(ms);
+
+      // badge
       r.badgeEl.className='pill';
       if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
       else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
       else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
       else { r.badgeEl.textContent="Waiting"; }
 
-      if(ms < -60_000 && !r.isPast){ r.isPast=true; r.rowEl.classList.add('pastRow'); r.sec.pastEl.appendChild(r.rowEl); }
-      else if(ms >= -60_000 && r.isPast){ r.isPast=false; r.rowEl.classList.remove('pastRow'); r.sec.upEl.appendChild(r.rowEl); }
+      // move between groups
+      if(ms < -60_000 && !r.isPast){
+        r.isPast=true;
+        r.rowEl.classList.add('pastRow');
+        r.sec.pastEl.appendChild(r.rowEl);
+      }else if(ms >= -60_000 && r.isPast){
+        r.isPast=false;
+        r.rowEl.classList.remove('pastRow');
+        r.sec.upEl.appendChild(r.rowEl);
+      }
 
+      // sound (one-shot, respect mute)
       const key=r.key; const st=(alertedState[key] ||= {});
       if(!r.muted){
         if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; playCue('m5'); }
@@ -297,8 +279,12 @@ function updateTick(){
   });
 }
 
-/* ===== Google Sheet (GViz JSONP) ===== */
-function buildGVizJsonpUrl(cb){const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});return `${base}?${params.toString()}`;}
+/* ============== GViz JSONP ============== */
+function buildGVizJsonpUrl(callbackName){
+  const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
+  const params=new URLSearchParams({tqx:`out:json;responseHandler:${callbackName}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
+  return `${base}?${params.toString()}`;
+}
 function jsonp(url,cbName,timeout=12000){
   return new Promise((resolve,reject)=>{
     const s=document.createElement('script'); let done=false;
@@ -314,8 +300,8 @@ function extractU4FromGviz(resp){
   return String(cell?.v ?? cell?.f ?? '').trim();
 }
 
-/* ===== SYNC LOOP ===== */
-let sectionsRaw="";
+/* ============== AUTO SYNC ============== */
+let sectionsRaw=""; // for detecting real change
 async function syncFromSheetJSONP(){
   try{
     const cb="cb_"+Math.random().toString(36).slice(2);
@@ -323,35 +309,29 @@ async function syncFromSheetJSONP(){
     const raw=extractU4FromGviz(payload);
     if(raw && raw!==sectionsRaw){
       sectionsRaw=raw; alertedState={};
-      sections=parseSchedule(raw); buildUI(); updateTick();
+      sections=parseSchedule(raw);
+      buildUI();
+      updateTick();
     }
     syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
   }catch(e){ console.warn(e); syncStatus.textContent=`Error ${e.name}: ${e.message}`; }
 }
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* ===== INIT ===== */
+/* ============== INIT (persist toggle & volume) ============== */
 (function init(){
-  // Volume persist
-  const savedVol=Number(localStorage.getItem('bossVol')); const vol=Number.isFinite(savedVol)?savedVol:80;
+  // volume (persist)
+  const savedVol=Number(localStorage.getItem('bossVol'));
+  const vol=Number.isFinite(savedVol)?savedVol:80;
   volSlider.value=String(vol); volVal.textContent=`${vol}%`;
   volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
 
-  // Sound toggle persist
+  // sound toggle (persist)
   const savedSound=localStorage.getItem('bossSound');
   audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); if(audioEnabled) userUnlock(); });
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); });
 
-  // เตรียมปลดล็อกอัตโนมัติ
-  if(isMobile()){
-    showUnlockBar(true);
-    document.addEventListener('pointerdown', ()=>{ if(audioEnabled) userUnlock(); }, {once:true});
-  }
-  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && audioEnabled) userUnlock(); });
-  document.getElementById('unlockBtn').addEventListener('click', ()=> userUnlock());
-
-  // เริ่มทำงาน
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
 })();
