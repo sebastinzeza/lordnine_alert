@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
+<meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Boss Countdown • Auto Sync + Per-Boss Mute (UTC+7)</title>
 <style>
@@ -34,29 +34,24 @@
   .dayhead{margin:20px 0 8px;color:#dfe8f7;font-weight:800;letter-spacing:.2px}
   .cols{display:grid;grid-template-columns:2fr 110px 140px 170px 120px;gap:8px;align-items:center}
   .head{color:#8aa0b8;font-weight:700;padding:8px 12px}
-  .row{background:var(--card);border:1px solid #1c2430;border-radius:10px;padding:12px;margin-bottom:10px;transition:opacity .15s ease}
+  .row{background:var(--card);border:1px solid #1c2430;border-radius:10px;padding:12px;margin-bottom:10px}
   .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .time{font-weight:700}
   .due{font-variant-numeric:tabular-nums}
   .pill{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:12px;border:1px solid #223044;color:#8aa0b8}
   .soon{color:var(--warn);border-color:#544a13}
   .hot{color:#fff;background:var(--hot);border-color:transparent}
-  .pastRow{opacity:.55}
+  .past{opacity:.5}
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;border-radius:999px;padding:.35rem .7rem;background:#121b28;border:1px solid #223044;color:#cfd9e7;cursor:pointer}
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
-  /* containers for grouping */
-  .daywrap .pastGroup{margin-top:6px}
-  .daywrap .pastGroup .row{opacity:.6}
-
-  /* ------- Mobile stack (no overlap) ------- */
+  /* Mobile */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
-
     .row.cols{
       display:grid;
       grid-template-columns: 1fr auto;
@@ -65,8 +60,7 @@
         "time  alert"
         "due   alert"
         "status alert";
-      row-gap:6px;
-      align-items:start;
+      row-gap:6px;align-items:start
     }
     .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
     .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
@@ -78,6 +72,15 @@
     .statusCell .pill{font-size:12px;padding:.18rem .5rem}
     .chip{padding:.4rem .8rem;font-size:13px}
   }
+
+  /* Sound gate overlay */
+  #soundGate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:9999}
+  #soundGateCard{background:#121b28;border:1px solid #223044;border-radius:14px;padding:18px 18px 14px;max-width:520px;width:92%;color:#d7e2f2;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  #soundGate h3{margin:0 0 6px;font-size:18px}
+  #soundGate p{margin:0 0 10px;color:#9fb3ca;font-size:13px}
+  #soundGate .actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px}
+  .btn{background:#152233;color:#fff;border:1px solid #213246;border-radius:10px;padding:10px 12px;cursor:pointer}
+  .btn:hover{border-color:#305070}
 </style>
 </head>
 <body>
@@ -96,7 +99,7 @@
       <span class="control-title">Enable sound</span>
     </label>
     <div class="control volume">
-      <span class="control-title">Vol</span>
+      <span class="control-title">Volume</span>
       <input id="vol" type="range" min="0" max="100" step="1"><span id="volVal">80%</span>
     </div>
   </div>
@@ -118,34 +121,141 @@
   Lord Nine Boss Alert V1.2 By DangSoda
 </footer>
 
+<!-- Sound gate overlay -->
+<div id="soundGate" style="display:none">
+  <div id="soundGateCard">
+    <h3>Enable sound</h3>
+    <p>Tap “Enable” once so your browser allows audio alerts (required on mobile).</p>
+    <div class="actions">
+      <button id="btnTest" class="btn">Test sound</button>
+      <button id="btnEnable" class="btn">Enable</button>
+    </div>
+  </div>
+</div>
+
 <script>
-/* ============== CONFIG ============== */
+/* ================== CONFIG ================== */
 const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
 const SHEET_NAME = "BossAlert";
 const RANGE_A1   = "U4";
 const SYNC_MS    = 20000;
 
-/* ============== TIME (UTC+7) ============== */
+/* ================== TIME (UTC+7) ================== */
 const TZ="Asia/Bangkok";
 const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ============== SOUND ============== */
-const AUDIO_5MIN="/sounds/5min.mp3";  // วางไฟล์ในโฮสต์ของคุณ เช่น /audio/...
-const AUDIO_HIT ="/sounds/hit.mp3";
+/* ================== STATE (schedule/mute/alerts) ================== */
+let sections = [];        // [{dateStr,label,items:[{name,at}],rows:[]}]
+let alertedState = {};    // { rowKey: {m5:boolean, hit:boolean} } — reset on new sheet text
+let lastRaw = "";
+
+const MUTE_STORE_KEY="bossMuteMapV1";
+function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
+function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
+let muteMap = loadMuteMap();
+function rowKeyOf(sec,item){ const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase(); return `${sec.dateStr}|${item.at}|${clean}`; }
+
+/* ================== DOM REFS ================== */
+const nowEl=document.getElementById('now');
+const listEl=document.getElementById('list');
+const firstDayHint=document.getElementById('firstDayHint');
+const firstDayLabel=document.getElementById('firstDayLabel');
+const syncStatus=document.getElementById('syncStatus');
+const volSlider=document.getElementById('vol');
+const volVal=document.getElementById('volVal');
+const soundToggle=document.getElementById('soundToggle');
+const soundGate=document.getElementById('soundGate');
+const btnEnable=document.getElementById('btnEnable');
+const btnTest=document.getElementById('btnTest');
+
+/* ================== SOUND (WebAudio buffer) ================== */
 let audioEnabled = true;
-function getVolume(){return Math.max(0,Math.min(1,(Number(localStorage.getItem("bossVol")||80)/100)))}
-async function playCue(kind){
-  if(!audioEnabled) return;
-  const url=(kind==="hit")?AUDIO_HIT:AUDIO_5MIN;
-  const a=new Audio(url);
-  a.volume=Math.min(1,getVolume()+(kind==="hit"?0.10:0));
-  try{await a.play()}catch(e){console.warn("Audio play failed:",e)}
+let audioCtx = null;
+let gainNode = null;
+let buffers = { m5:null, hit:null };
+
+function getVolume(){ return Math.max(0, Math.min(1, (Number(localStorage.getItem("bossVol")||80)/100))); }
+function setVolume(v){
+  if (gainNode) gainNode.gain.value = v;
+  localStorage.setItem('bossVol', Math.round(v*100));
+  volVal.textContent = `${Math.round(v*100)}%`;
 }
 
-/* ============== PARSER (multi-day) ============== */
+async function ensureAudioCtx(){
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = getVolume();
+    gainNode.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch {}
+  }
+  return audioCtx.state === 'running';
+}
+async function fetchDecode(url){
+  const res = await fetch(url, { cache:'force-cache' });
+  const ab  = await res.arrayBuffer();
+  return await audioCtx.decodeAudioData(ab);
+}
+async function loadAudioBuffers(){
+  const ok = await ensureAudioCtx(); if(!ok) return false;
+  try{
+    const [b1,b2] = await Promise.all([
+      fetchDecode('sounds/5min.mp3'),
+      fetchDecode('sounds/hit.mp3'),
+    ]);
+    buffers.m5=b1; buffers.hit=b2; return true;
+  }catch(e){ console.warn('Decode audio failed:', e); return false; }
+}
+function showGate(){ soundGate.style.display='flex'; }
+function hideGate(){ soundGate.style.display='none'; }
+
+async function playBuffer(type, tries=2){
+  if (!audioEnabled) return;
+  const ok = await ensureAudioCtx();
+  if (!ok){ showGate(); return; }
+  if (!buffers[type]){
+    const loaded = await loadAudioBuffers();
+    if (!loaded) return;
+  }
+  try{
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffers[type];
+    src.connect(gainNode);
+    src.start(0);
+  }catch(e){
+    if (tries>0){ try{ await audioCtx.resume(); }catch{} return playBuffer(type, tries-1); }
+    console.warn('playBuffer failed:', e); showGate();
+  }
+}
+async function playCue(kind){ return playBuffer(kind==='m5'?'m5':'hit'); }
+
+/* ปุ่มปลดล็อกเสียง + ทดสอบ */
+btnEnable.addEventListener('click', async ()=>{
+  const ok = await ensureAudioCtx();
+  if(ok){
+    const loaded = await loadAudioBuffers();
+    if(loaded){ hideGate(); playBuffer('m5'); }
+  }
+});
+btnTest.addEventListener('click', async ()=>{
+  const ok = await ensureAudioCtx();
+  if(ok){ if(!buffers.m5) await loadAudioBuffers(); playBuffer('m5'); }
+  else showGate();
+});
+
+/* Auto-resume เมื่อกลับมา foreground */
+document.addEventListener('visibilitychange', async ()=>{
+  if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended'){
+    try { await audioCtx.resume(); } catch {}
+  }
+});
+
+/* ================== PARSER (multi-day text) ================== */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -156,9 +266,10 @@ function parseSchedule(text){
     const d=line.match(DAY_RE);
     if(d){
       sawHeader=true;
-      const[,dow,dd,MM,YYYY]=d; const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
+      const[,dow,dd,MM,YYYY]=d;
+      const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
       const dateStr=`${YYYY}-${MM2}-${dd2}`;
-      cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[],upEl:null,pastEl:null};
+      cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[]};
       out.push(cur); continue;
     }
     const m=[...line.matchAll(/(\d{1,2}):(\d{2})/g)];
@@ -173,27 +284,7 @@ function parseSchedule(text){
   return out;
 }
 
-/* ============== STATE & DOM ============== */
-let sections=[];              // [{dateStr,label,items,rows,upEl,pastEl}]
-let alertedState={};
-let lastRaw="";
-
-const MUTE_STORE_KEY="bossMuteMapV1";
-function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
-function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
-let muteMap = loadMuteMap();
-function rowKeyOf(sec,item){ const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase(); return `${sec.dateStr}|${item.at}|${clean}`; }
-
-const nowEl=document.getElementById('now');
-const listEl=document.getElementById('list');
-const volSlider=document.getElementById('vol');
-const volVal=document.getElementById('volVal');
-const firstDayHint=document.getElementById('firstDayHint');
-const firstDayLabel=document.getElementById('firstDayLabel');
-const syncStatus=document.getElementById('syncStatus');
-const soundToggle=document.getElementById('soundToggle');
-
-/* ============== UI BUILD (with Upcoming/Past containers) ============== */
+/* ================== UI BUILD ================== */
 function applyMuteBtnUI(r){
   if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
   else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
@@ -201,18 +292,8 @@ function applyMuteBtnUI(r){
 function buildUI(){
   listEl.innerHTML='';
   sections.forEach(sec=>{
-    // header
-    const head=document.createElement('div'); head.className='dayhead'; head.textContent=`🕐 ${sec.label}`;
-    // day wrapper with two groups
-    const wrap=document.createElement('div'); wrap.className='daywrap';
-    const up=document.createElement('div'); up.className='upGroup';
-    const past=document.createElement('div'); past.className='pastGroup';
-    wrap.append(up,past);
-    listEl.append(head,wrap);
-    sec.upEl=up; sec.pastEl=past;
+    const h=document.createElement('div'); h.className='dayhead'; h.textContent=`🕐 ${sec.label}`; listEl.appendChild(h);
     sec.rows=[];
-
-    // rows initially go to Upcoming; updateTick จะย้ายเองเมื่อเกินเวลา
     sec.items.forEach(item=>{
       const row=document.createElement('div'); row.className='row cols';
       const nameEl=document.createElement('div'); nameEl.className='name';
@@ -224,73 +305,76 @@ function buildUI(){
       const alertCell=document.createElement('div'); alertCell.className='alertCell';
       const muteBtn=document.createElement('button'); muteBtn.className='chip'; muteBtn.textContent='🔔 Alert';
       alertCell.appendChild(muteBtn);
-
-      row.append(nameEl,timeEl,dueEl,statusCell,alertCell);
-      up.appendChild(row);
+      row.append(nameEl,timeEl,dueEl,statusCell,alertCell); listEl.appendChild(row);
 
       const key=rowKeyOf(sec,item);
-      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key,isPast:false,sec};
+      const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key};
       applyMuteBtnUI(r);
-      muteBtn.addEventListener('click',()=>{ r.muted=!r.muted; if(r.muted) muteMap[key]=true; else delete muteMap[key]; saveMuteMap(muteMap); applyMuteBtnUI(r); });
+      muteBtn.addEventListener('click',()=>{
+        r.muted=!r.muted;
+        if(r.muted) muteMap[key]=true; else delete muteMap[key];
+        saveMuteMap(muteMap);
+        applyMuteBtnUI(r);
+      });
       sec.rows.push(r);
     });
   });
-  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
+  else{ firstDayHint.style.display='none'; }
 }
 
-/* ============== TICK: update + move to Past ============== */
+/* ================== TICK (robust alerts) ================== */
+function getOrInitAlertState(key){
+  if(!(key in alertedState)) alertedState[key]={m5:false,hit:false};
+  return alertedState[key];
+}
 function updateTick(){
-  nowEl.textContent=fmtNow(); const nowMs=Date.now();
-  sections.forEach(sec=>{
-    sec.items.forEach((b,i)=>{
-      const r=sec.rows[i]; if(!r) return;
-      const tgt=atOn(sec.dateStr,b.at); const ms=tgt.getTime()-nowMs;
+  nowEl.textContent = fmtNow();
+  const nowMs = Date.now();
 
-      // texts
-      r.nameEl.textContent=b.name;
-      r.timeEl.textContent=b.at;
-      r.dueEl.textContent=fmtHMS(ms);
+  sections.forEach((sec)=>{
+    sec.items.forEach((b, i)=>{
+      const r = sec.rows[i]; if(!r) return;
+      const ms = atOn(sec.dateStr, b.at).getTime() - nowMs;
 
-      // badge
-      r.badgeEl.className='pill';
-      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
-      else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
-      else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
-      else { r.badgeEl.textContent="Waiting"; }
+      r.nameEl.textContent = b.name;
+      r.timeEl.textContent = b.at;
+      r.dueEl.textContent  = fmtHMS(ms);
+      r.rowEl.classList.toggle('past', ms < 0);
 
-      // move between groups
-      if(ms < -60_000 && !r.isPast){
-        r.isPast=true;
-        r.rowEl.classList.add('pastRow');
-        r.sec.pastEl.appendChild(r.rowEl);
-      }else if(ms >= -60_000 && r.isPast){
-        r.isPast=false;
-        r.rowEl.classList.remove('pastRow');
-        r.sec.upEl.appendChild(r.rowEl);
+      r.badgeEl.className = 'pill';
+      if (ms <= 0 && ms > -60_000){
+        r.badgeEl.classList.add('hot'); r.badgeEl.textContent = "It's time!";
+      } else if (ms <= 60_000 && ms > 0){
+        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Less than 1 min";
+      } else if (ms <= 5*60_000 && ms > 60_000){
+        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Within 5 min";
+      } else {
+        r.badgeEl.textContent = "Waiting";
       }
 
-      // sound (one-shot, respect mute)
-      const key=r.key; const st=(alertedState[key] ||= {});
+      const key = rowKeyOf(sec,b);
+      const st = getOrInitAlertState(key);
       if(!r.muted){
-        if(ms<=5*60_000 && ms>5*60_000-1000 && !st.m5){ st.m5=true; playCue('m5'); }
-        if(ms<=0 && ms>-1000 && !st.hit){ st.hit=true; playCue('hit'); }
+        if(!st.m5 && ms <= 5*60_000 && ms > 60_000){ st.m5 = true; playCue('m5'); }
+        if(!st.hit && ms <= 0){ st.hit = true; playCue('hit'); }
       }
     });
   });
 }
 
-/* ============== GViz JSONP ============== */
-function buildGVizJsonpUrl(callbackName){
+/* ================== GOOGLE SHEET (GViz JSONP) ================== */
+function buildGVizJsonpUrl(cb){
   const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-  const params=new URLSearchParams({tqx:`out:json;responseHandler:${callbackName}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
+  const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
   return `${base}?${params.toString()}`;
 }
-function jsonp(url,cbName,timeout=12000){
+function jsonp(url,cb,timeout=12000){
   return new Promise((resolve,reject)=>{
     const s=document.createElement('script'); let done=false;
     const timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))},timeout);
-    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cbName];s.remove();}
-    window[cbName]=payload=>{cleanup();resolve(payload)};
+    function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cb];s.remove();}
+    window[cb]=payload=>{cleanup();resolve(payload)};
     s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
   });
 }
@@ -300,38 +384,49 @@ function extractU4FromGviz(resp){
   return String(cell?.v ?? cell?.f ?? '').trim();
 }
 
-/* ============== AUTO SYNC ============== */
-let sectionsRaw=""; // for detecting real change
+/* ================== AUTO SYNC LOOP ================== */
 async function syncFromSheetJSONP(){
   try{
     const cb="cb_"+Math.random().toString(36).slice(2);
     const payload=await jsonp(buildGVizJsonpUrl(cb),cb);
     const raw=extractU4FromGviz(payload);
-    if(raw && raw!==sectionsRaw){
-      sectionsRaw=raw; alertedState={};
+    if(raw && raw!==lastRaw){
+      lastRaw=raw;
+      alertedState={};                // reset one-shot (mute persists)
       sections=parseSchedule(raw);
       buildUI();
       updateTick();
     }
     syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
-  }catch(e){ console.warn(e); syncStatus.textContent=`Error ${e.name}: ${e.message}`; }
+  }catch(e){
+    console.warn(e);
+    syncStatus.textContent=`Sync error: ${e.message}`;
+  }
 }
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* ============== INIT (persist toggle & volume) ============== */
+/* ================== INIT ================== */
 (function init(){
-  // volume (persist)
-  const savedVol=Number(localStorage.getItem('bossVol'));
-  const vol=Number.isFinite(savedVol)?savedVol:80;
-  volSlider.value=String(vol); volVal.textContent=`${vol}%`;
-  volSlider.addEventListener('input',e=>{ localStorage.setItem('bossVol',e.target.value); volVal.textContent=`${e.target.value}%`; });
-
   // sound toggle (persist)
   const savedSound=localStorage.getItem('bossSound');
   audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); });
+  soundToggle.addEventListener('change',e=>{
+    audioEnabled=e.target.checked;
+    localStorage.setItem('bossSound',String(audioEnabled));
+    if(audioEnabled) showGate();
+  });
 
+  // volume (persist)
+  const savedVol=Number(localStorage.getItem('bossVol'));
+  const vol=Number.isFinite(savedVol)?savedVol:80;
+  volSlider.value=String(vol); volVal.textContent=`${vol}%`;
+  volSlider.addEventListener('input',e=>{ setVolume(Number(e.target.value)/100); });
+
+  // แสดงเกทเพื่อปลดล็อกเสียงรอบแรก (มือถือจำเป็น)
+  if(audioEnabled) showGate();
+
+  // นาฬิกา & ซิงก์
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
 })();
