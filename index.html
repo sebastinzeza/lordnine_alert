@@ -46,21 +46,20 @@
   .chip:hover{border-color:#3a536e}
   .chip.muted{background:#1a2230;color:#9fb0c9;border-color:#33495f}
 
-  /* Mobile */
+  /* Mobile layout */
   @media (max-width:720px){
     header{padding:12px 14px;gap:10px}.now{font-size:22px}.tz{font-size:12px}
     .controls.bar{width:100%;justify-content:flex-start}
     .control.volume{min-width:unset;flex:1}.control.volume input[type=range]{width:100%}
     .wrap{padding:12px}.head{display:none}
     .row.cols{
-      display:grid;
-      grid-template-columns: 1fr auto;
+      display:grid; grid-template-columns: 1fr auto;
       grid-template-areas:
         "name  alert"
         "time  alert"
         "due   alert"
         "status alert";
-      row-gap:6px;align-items:start
+      row-gap:6px; align-items:start;
     }
     .name{grid-area:name;font-size:16px;font-weight:700;line-height:1.25}
     .alertCell{grid-area:alert;display:flex;justify-content:flex-end;align-self:center}
@@ -102,6 +101,10 @@
       <span class="control-title">Volume</span>
       <input id="vol" type="range" min="0" max="100" step="1"><span id="volVal">80%</span>
     </div>
+
+    <!-- NEW: Notifications + Wake Lock buttons -->
+    <button id="btnNotif" class="control">Enable notifications</button>
+    <button id="btnWake" class="control">Keep screen awake</button>
   </div>
 </header>
 
@@ -134,31 +137,28 @@
 </div>
 
 <script>
-/* ================== CONFIG ================== */
+/* ===== CONFIG ===== */
 const SHEET_ID   = "1i0IWDnKauf7hT792nsWrFBWNepWBtJq6IStUiF2LGAs";
 const SHEET_NAME = "BossAlert";
 const RANGE_A1   = "U4";
 const SYNC_MS    = 20000;
 
-/* ================== TIME (UTC+7) ================== */
+/* ===== TIME (UTC+7) ===== */
 const TZ="Asia/Bangkok";
 const BKK_OFFSET_MS = 7*60*60*1000;
 function fmtNow(){return new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ});}
 function fmtHMS(ms){if(ms<0)ms=0;const s=Math.floor(ms/1000);const hh=String(Math.floor(s/3600)).padStart(2,"0");const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");const ss=String(s%60).padStart(2,"0");return `${hh}:${mm}:${ss}`;}
 function atOn(dateStr,hhmm){const[y,m,d]=dateStr.split('-').map(Number);const[h,mi]=hhmm.split(':').map(Number);return new Date(Date.UTC(y,m-1,d,h,mi,0,0)-BKK_OFFSET_MS);}
 
-/* ================== STATE (schedule/mute/alerts) ================== */
-let sections = [];
-let alertedState = {};
-let lastRaw = "";
-
+/* ===== STATE ===== */
+let sections=[]; let alertedState={}; let lastRaw="";
 const MUTE_STORE_KEY="bossMuteMapV1";
 function loadMuteMap(){ try{ return JSON.parse(localStorage.getItem(MUTE_STORE_KEY)||"{}"); }catch{return {}} }
 function saveMuteMap(map){ localStorage.setItem(MUTE_STORE_KEY, JSON.stringify(map)); }
 let muteMap = loadMuteMap();
 function rowKeyOf(sec,item){ const clean=item.name.replace(/\s+/g,' ').trim().toLowerCase(); return `${sec.dateStr}|${item.at}|${clean}`; }
 
-/* ================== DOM REFS ================== */
+/* ===== DOM ===== */
 const nowEl=document.getElementById('now');
 const listEl=document.getElementById('list');
 const firstDayHint=document.getElementById('firstDayHint');
@@ -170,94 +170,132 @@ const soundToggle=document.getElementById('soundToggle');
 const soundGate=document.getElementById('soundGate');
 const btnEnable=document.getElementById('btnEnable');
 const btnTest=document.getElementById('btnTest');
+const btnNotif=document.getElementById('btnNotif');
+const btnWake=document.getElementById('btnWake');
 
-/* ================== SOUND (WebAudio buffer) ================== */
+/* ===== AUDIO (WebAudio) ===== */
 let audioEnabled = true;
 let audioCtx = null;
 let gainNode = null;
 let buffers = { m5:null, hit:null };
-
 function getVolume(){ return Math.max(0, Math.min(1, (Number(localStorage.getItem("bossVol")||80)/100))); }
-function setVolume(v){
-  if (gainNode) gainNode.gain.value = v;
-  localStorage.setItem('bossVol', Math.round(v*100));
-  volVal.textContent = `${Math.round(v*100)}%`;
-}
-
+function setVolume(v){ if (gainNode) gainNode.gain.value = v; localStorage.setItem('bossVol', Math.round(v*100)); volVal.textContent = `${Math.round(v*100)}%`; }
 async function ensureAudioCtx(){
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    gainNode = audioCtx.createGain();
-    gainNode.gain.value = getVolume();
-    gainNode.connect(audioCtx.destination);
-  }
-  if (audioCtx.state === 'suspended') {
-    try { await audioCtx.resume(); } catch {}
-  }
+  if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); gainNode = audioCtx.createGain(); gainNode.gain.value = getVolume(); gainNode.connect(audioCtx.destination); }
+  if (audioCtx.state === 'suspended'){ try{ await audioCtx.resume(); }catch{} }
   return audioCtx.state === 'running';
 }
-async function fetchDecode(url){
-  const res = await fetch(url, { cache:'force-cache' });
-  const ab  = await res.arrayBuffer();
-  return await audioCtx.decodeAudioData(ab);
-}
+async function fetchDecode(url){ const res = await fetch(url, { cache:'force-cache' }); const ab  = await res.arrayBuffer(); return await audioCtx.decodeAudioData(ab); }
 async function loadAudioBuffers(){
   const ok = await ensureAudioCtx(); if(!ok) return false;
   try{
-    const [b1,b2] = await Promise.all([
-      fetchDecode('sounds/5min.mp3'),
-      fetchDecode('sounds/hit.mp3'),
-    ]);
+    const [b1,b2] = await Promise.all([ fetchDecode('/sounds/5min.mp3'), fetchDecode('/sounds/hit.mp3') ]);
     buffers.m5=b1; buffers.hit=b2; return true;
   }catch(e){ console.warn('Decode audio failed:', e); return false; }
 }
 function showGate(){ soundGate.style.display='flex'; }
 function hideGate(){ soundGate.style.display='none'; }
-
 async function playBuffer(type, tries=2){
-  if (!audioEnabled) return;
+  if (!audioEnabled) return false;
   const ok = await ensureAudioCtx();
-  if (!ok){ showGate(); return; }
-  if (!buffers[type]){
-    const loaded = await loadAudioBuffers();
-    if (!loaded) return;
-  }
-  try{
-    const src = audioCtx.createBufferSource();
-    src.buffer = buffers[type];
-    src.connect(gainNode);
-    src.start(0);
-  }catch(e){
-    if (tries>0){ try{ await audioCtx.resume(); }catch{} return playBuffer(type, tries-1); }
-    console.warn('playBuffer failed:', e); showGate();
-  }
+  if (!ok){ showGate(); return false; }
+  if (!buffers[type]){ const loaded = await loadAudioBuffers(); if (!loaded) return false; }
+  try{ const src = audioCtx.createBufferSource(); src.buffer = buffers[type]; src.connect(gainNode); src.start(0); return true; }
+  catch(e){ if (tries>0){ try{ await audioCtx.resume(); }catch{} return playBuffer(type, tries-1); } console.warn('playBuffer failed:', e); showGate(); return false; }
 }
 async function playCue(kind){ return playBuffer(kind==='m5'?'m5':'hit'); }
 
-/* ===== ปุ่มปลดล็อกเสียง (ไม่เล่นเสียงอัตโนมัติ) ===== */
+/* ===== NOTIFICATIONS (Service Worker) ===== */
+let swReg = null;
+async function registerSW(){
+  if (!('serviceWorker' in navigator)) return null;
+  // inline SW via Blob (no external file)
+  const swCode = `
+    self.addEventListener('install', e=>self.skipWaiting());
+    self.addEventListener('activate', e=>self.clients.claim());
+    self.addEventListener('message', e=>{
+      const {type,title,options} = e.data||{};
+      if(type==='notify' && self.registration.showNotification){
+        self.registration.showNotification(title||'Boss Alert', options||{});
+      }
+    });
+  `;
+  const blob = new Blob([swCode], {type:'text/javascript'});
+  const url = URL.createObjectURL(blob);
+  try{
+    const reg = await navigator.serviceWorker.register(url);
+    swReg = reg;
+    return reg;
+  }catch(e){ console.warn('SW register failed', e); return null; }
+}
+async function ensureNotifications(){
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  const p = await Notification.requestPermission();
+  return p === 'granted';
+}
+async function showOSNotification(tag, title, body){
+  if (!await ensureNotifications()) return false;
+  if (!swReg) await registerSW();
+  if (swReg){
+    swReg.active?.postMessage({
+      type:'notify',
+      title,
+      options:{
+        body,
+        tag,           // avoid spamming (same tag replaces)
+        renotify:true, // bump again on replace
+        vibrate:[200,80,200],
+        icon:'/favicon.ico', badge:'/favicon.ico'
+      }
+    });
+    return true;
+  }else if ('Notification' in window && Notification.permission==='granted'){
+    // page-level fallback
+    new Notification(title, { body, tag, renotify:true });
+    return true;
+  }
+  return false;
+}
+
+/* Buttons */
+btnNotif.addEventListener('click', async ()=>{
+  const ok = await ensureNotifications();
+  if (ok){ await registerSW(); btnNotif.textContent='Notifications enabled ✅'; }
+  else { btnNotif.textContent='Notifications blocked ❌'; }
+});
+
+/* ===== Wake Lock (keep screen on) ===== */
+let wakeLock = null;
+async function requestWakeLock(){
+  try{
+    if ('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+      btnWake.textContent = 'Keep screen awake ✓';
+      wakeLock.addEventListener('release', ()=>{ btnWake.textContent='Keep screen awake'; });
+    }else{
+      alert('Wake Lock API not supported on this device/browser.');
+    }
+  }catch(e){ console.warn('WakeLock error', e); }
+}
+btnWake.addEventListener('click', requestWakeLock);
+document.addEventListener('visibilitychange', async ()=>{
+  if (wakeLock && document.visibilityState === 'visible'){ try{ wakeLock = await navigator.wakeLock.request('screen'); }catch{} }
+  if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended'){ try{ await audioCtx.resume(); }catch{} }
+});
+
+/* Gate buttons (no auto-play on enable; test only) */
 btnEnable.addEventListener('click', async ()=>{
   const ok = await ensureAudioCtx();
-  if(ok){
-    await loadAudioBuffers();     // แค่โหลดเสียงล่วงหน้า
-    hideGate();                   // ปิด overlay
-  }else{
-    showGate();
-  }
+  if(ok){ const loaded = await loadAudioBuffers(); if(loaded){ hideGate(); } }
 });
 btnTest.addEventListener('click', async ()=>{
   const ok = await ensureAudioCtx();
-  if(ok){ if(!buffers.m5) await loadAudioBuffers(); playBuffer('m5'); }
+  if(ok){ if(!buffers.m5) await loadAudioBuffers(); await playBuffer('m5'); }
   else showGate();
 });
 
-/* Auto-resume เมื่อกลับมา foreground */
-document.addEventListener('visibilitychange', async ()=>{
-  if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended'){
-    try { await audioCtx.resume(); } catch {}
-  }
-});
-
-/* ================== PARSER (multi-day text) ================== */
+/* ===== Parser (multi-day) ===== */
 const DAY_RE=/^(?:["'`“”‘’]\s*)?(?:[\u{1F550}-\u{1F567}\u23F0\u23F3]\s*)?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*["'`“”‘’])?$/iu;
 function stripLineQuotes(s){return s.replace(/^[\s"'“”‘’`]+/,"").replace(/[\s"'“”‘’`]+$/,"")}
 function parseSchedule(text){
@@ -268,8 +306,7 @@ function parseSchedule(text){
     const d=line.match(DAY_RE);
     if(d){
       sawHeader=true;
-      const[,dow,dd,MM,YYYY]=d;
-      const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
+      const[,dow,dd,MM,YYYY]=d; const dd2=String(+dd).padStart(2,'0'), MM2=String(+MM).padStart(2,'0');
       const dateStr=`${YYYY}-${MM2}-${dd2}`;
       cur={dateStr,label:`${dow} ${dd2}/${MM2}/${YYYY}`,items:[],rows:[]};
       out.push(cur); continue;
@@ -286,11 +323,8 @@ function parseSchedule(text){
   return out;
 }
 
-/* ================== UI BUILD ================== */
-function applyMuteBtnUI(r){
-  if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; }
-  else{ r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; }
-}
+/* ===== UI ===== */
+function applyMuteBtnUI(r){ if(r.muted){ r.muteBtn.classList.add('muted'); r.muteBtn.textContent='🔕 Muted'; } else { r.muteBtn.classList.remove('muted'); r.muteBtn.textContent='🔔 Alert'; } }
 function buildUI(){
   listEl.innerHTML='';
   sections.forEach(sec=>{
@@ -312,112 +346,85 @@ function buildUI(){
       const key=rowKeyOf(sec,item);
       const r={nameEl,timeEl,dueEl,badgeEl:badge,muteBtn,rowEl:row,muted:!!muteMap[key],key};
       applyMuteBtnUI(r);
-      muteBtn.addEventListener('click',()=>{
-        r.muted=!r.muted;
-        if(r.muted) muteMap[key]=true; else delete muteMap[key];
-        saveMuteMap(muteMap);
-        applyMuteBtnUI(r);
-      });
+      muteBtn.addEventListener('click',()=>{ r.muted=!r.muted; if(r.muted) muteMap[key]=true; else delete muteMap[key]; saveMuteMap(muteMap); applyMuteBtnUI(r); });
       sec.rows.push(r);
     });
   });
-  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; }
-  else{ firstDayHint.style.display='none'; }
+  if(sections.length){ firstDayLabel.textContent=sections[0].label; firstDayHint.style.display=''; } else { firstDayHint.style.display='none'; }
 }
 
-/* ================== TICK (robust alerts) ================== */
-function getOrInitAlertState(key){
-  if(!(key in alertedState)) alertedState[key]={m5:false,hit:false};
-  return alertedState[key];
+/* ===== Tick + Alert (with background fallbacks) ===== */
+function getOrInitAlertState(key){ if(!(key in alertedState)) alertedState[key]={m5:false,hit:false}; return alertedState[key]; }
+
+async function triggerAlert(tag, title, body, kind){
+  // 1) try sound
+  let played = await playCue(kind);
+  // 2) if hidden or sound blocked → show OS Notification too
+  if (document.hidden || !played){
+    await showOSNotification(tag, title, body);
+  }
 }
+
 function updateTick(){
-  nowEl.textContent = fmtNow();
-  const nowMs = Date.now();
+  nowEl.textContent=fmtNow(); const nowMs=Date.now();
+  sections.forEach(sec=>{
+    sec.items.forEach((b,i)=>{
+      const r=sec.rows[i]; if(!r) return;
+      const ms=atOn(sec.dateStr,b.at).getTime()-nowMs;
+      r.nameEl.textContent=b.name; r.timeEl.textContent=b.at; r.dueEl.textContent=fmtHMS(ms); r.rowEl.classList.toggle('past',ms<0);
+      r.badgeEl.className='pill';
+      if(ms<=0 && ms>-60_000){ r.badgeEl.classList.add('hot'); r.badgeEl.textContent="It's time!"; }
+      else if(ms<=60_000 && ms>0){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Less than 1 min"; }
+      else if(ms<=5*60_000 && ms>60_000){ r.badgeEl.classList.add('soon'); r.badgeEl.textContent="Within 5 min"; }
+      else { r.badgeEl.textContent="Waiting"; }
 
-  sections.forEach((sec)=>{
-    sec.items.forEach((b, i)=>{
-      const r = sec.rows[i]; if(!r) return;
-      const ms = atOn(sec.dateStr, b.at).getTime() - nowMs;
-
-      r.nameEl.textContent = b.name;
-      r.timeEl.textContent = b.at;
-      r.dueEl.textContent  = fmtHMS(ms);
-      r.rowEl.classList.toggle('past', ms < 0);
-
-      r.badgeEl.className = 'pill';
-      if (ms <= 0 && ms > -60_000){
-        r.badgeEl.classList.add('hot'); r.badgeEl.textContent = "It's time!";
-      } else if (ms <= 60_000 && ms > 0){
-        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Less than 1 min";
-      } else if (ms <= 5*60_000 && ms > 60_000){
-        r.badgeEl.classList.add('soon'); r.badgeEl.textContent = "Within 5 min";
-      } else {
-        r.badgeEl.textContent = "Waiting";
-      }
-
-      const key = rowKeyOf(sec,b);
-      const st = getOrInitAlertState(key);
+      const key=rowKeyOf(sec,b); const st=(alertedState[key] ||= {});
       if(!r.muted){
-        if(!st.m5 && ms <= 5*60_000 && ms > 60_000){ st.m5 = true; playCue('m5'); }
-        if(!st.hit && ms <= 0){ st.hit = true; playCue('hit'); }
+        if(!st.m5 && ms<=5*60_000 && ms>60_000){
+          st.m5=true;
+          triggerAlert(key, "Boss in 5 minutes", `${b.name} at ${b.at}`, 'm5');
+        }
+        if(!st.hit && ms<=0 && ms>-1000){
+          st.hit=true;
+          triggerAlert(key, "Boss is spawning now", `${b.name} at ${b.at}`, 'hit');
+        }
       }
     });
   });
 }
 
-/* ================== GOOGLE SHEET (GViz JSONP) ================== */
-function buildGVizJsonpUrl(cb){
-  const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-  const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"});
-  return `${base}?${params.toString()}`;
-}
+/* ===== Google Sheet (GViz JSONP) ===== */
+function buildGVizJsonpUrl(cb){ const base=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`; const params=new URLSearchParams({tqx:`out:json;responseHandler:${cb}`,sheet:SHEET_NAME,range:RANGE_A1,headers:"0"}); return `${base}?${params.toString()}`; }
 function jsonp(url,cb,timeout=12000){
-  return new Promise((resolve,reject)=>{
-    const s=document.createElement('script'); let done=false;
+  return new Promise((resolve,reject)=>{ const s=document.createElement('script'); let done=false;
     const timer=setTimeout(()=>{cleanup();reject(new Error('JSONP timeout'))},timeout);
     function cleanup(){if(done)return;done=true;clearTimeout(timer);delete window[cb];s.remove();}
-    window[cb]=payload=>{cleanup();resolve(payload)};
-    s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
+    window[cb]=payload=>{cleanup();resolve(payload)}; s.src=url; s.onerror=()=>{cleanup();reject(new Error('JSONP network error'))}; document.head.appendChild(s);
   });
 }
-function extractU4FromGviz(resp){
-  if(!resp?.table?.rows?.length) throw new Error('No data in BossAlert!U4');
-  const cell=resp.table.rows[0].c?.[0];
-  return String(cell?.v ?? cell?.f ?? '').trim();
-}
+function extractU4FromGviz(resp){ if(!resp?.table?.rows?.length) throw new Error('No data in BossAlert!U4'); const cell=resp.table.rows[0].c?.[0]; return String(cell?.v ?? cell?.f ?? '').trim(); }
 
-/* ================== AUTO SYNC LOOP ================== */
+/* ===== Auto sync ===== */
 async function syncFromSheetJSONP(){
   try{
     const cb="cb_"+Math.random().toString(36).slice(2);
     const payload=await jsonp(buildGVizJsonpUrl(cb),cb);
     const raw=extractU4FromGviz(payload);
     if(raw && raw!==lastRaw){
-      lastRaw=raw;
-      alertedState={};                // reset one-shot (mute persists)
-      sections=parseSchedule(raw);
-      buildUI();
-      updateTick();
+      lastRaw=raw; alertedState={}; sections=parseSchedule(raw); buildUI(); updateTick();
     }
     syncStatus.textContent=`Last synced at ${new Date().toLocaleTimeString('en-GB',{hour12:false,timeZone:TZ})}`;
-  }catch(e){
-    console.warn(e);
-    syncStatus.textContent=`Sync error: ${e.message}`;
-  }
+  }catch(e){ console.warn(e); syncStatus.textContent=`Sync error: ${e.message}`; }
 }
 function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, SYNC_MS); }
 
-/* ================== INIT ================== */
+/* ===== Init ===== */
 (function init(){
   // sound toggle (persist)
   const savedSound=localStorage.getItem('bossSound');
   audioEnabled = savedSound!==null ? (savedSound==='true') : true;
   soundToggle.checked=audioEnabled;
-  soundToggle.addEventListener('change',e=>{
-    audioEnabled=e.target.checked;
-    localStorage.setItem('bossSound',String(audioEnabled));
-    if(audioEnabled) showGate();   // แค่แสดง overlay ให้กด Enable/ทดสอบ ไม่เล่นเสียงเอง
-  });
+  soundToggle.addEventListener('change',e=>{ audioEnabled=e.target.checked; localStorage.setItem('bossSound',String(audioEnabled)); if(audioEnabled) showGate(); });
 
   // volume (persist)
   const savedVol=Number(localStorage.getItem('bossVol'));
@@ -425,12 +432,15 @@ function startAutoSync(){ syncFromSheetJSONP(); setInterval(syncFromSheetJSONP, 
   volSlider.value=String(vol); volVal.textContent=`${vol}%`;
   volSlider.addEventListener('input',e=>{ setVolume(Number(e.target.value)/100); });
 
-  // แสดงเกทเพื่อปลดล็อกเสียงรอบแรก (มือถือจำเป็น)
+  // first-run: show gate if sound enabled
   if(audioEnabled) showGate();
 
-  // นาฬิกา & ซิงก์
+  // timers
   updateTick(); setInterval(updateTick,1000);
   startAutoSync();
+
+  // try register SW early for notifications
+  registerSW();
 })();
 </script>
 </body>
